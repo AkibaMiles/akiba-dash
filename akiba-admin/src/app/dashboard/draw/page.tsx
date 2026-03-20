@@ -2,14 +2,18 @@
 "use client";
 
 import { useState } from "react";
-import Card from "@/components/Card";
 import { useDrawableRounds } from "@/hooks/useDrawableRounds";
 import { usePublicClient, useWriteContract } from "wagmi";
 import managerAbi from "@/lib/abi/AkibaV3.json";
 import { RAFFLE_MANAGER } from "@/lib/raffle-contract";
 import type { Hex } from "viem";
 
-const badge = (t: number) => (t === 3 ? "Physical" : t === 2 ? "Top-5" : t === 1 ? "Top-3" : "Single");
+const TYPE_BADGE: Record<number, { label: string; color: string }> = {
+  0: { label: 'Single',   color: 'bg-gray-100 text-gray-700' },
+  1: { label: 'Top-3',    color: 'bg-blue-50 text-blue-700' },
+  2: { label: 'Top-5',    color: 'bg-purple-50 text-purple-700' },
+  3: { label: 'Physical', color: 'bg-amber-50 text-amber-700' },
+}
 
 export default function DrawPage() {
   const { data, isLoading, isError, refetch } = useDrawableRounds();
@@ -36,72 +40,93 @@ export default function DrawPage() {
     }
   }
 
+  const active = (data || []).filter(r => r.canDraw || r.canClose || (!r.drawn && !r.closed))
+
   return (
-    <main className="max-w-4xl mx-auto p-6">
-      <Card title="Draw / Close">
-        {isLoading ? (
-          <p>Loading…</p>
-        ) : isError ? (
-          <p className="text-red-600">Failed to load raffles.</p>
-        ) : (
-          <div className="space-y-3">
-            {(data || []).map((r) => {
-              const endsLabel =
-                r.endsIn <= 0 ? "Ended" :
-                r.endsIn >= 86_400 ? `${Math.floor(r.endsIn / 86_400)}d` :
-                `${Math.floor(r.endsIn / 3600)}h ${Math.floor((r.endsIn % 3600) / 60)}m`;
+    <div className="rounded-xl border bg-white p-5 space-y-4">
+      <div>
+        <p className="font-semibold text-gray-900">Draw / Close Raffles</p>
+        <p className="mt-0.5 text-xs text-gray-400">Manage open rounds — draw winners or close and refund</p>
+      </div>
 
-              const showRow = r.canDraw || r.canClose || (!r.drawn && !r.closed);
-              if (!showRow) return null;
+      {isLoading ? (
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-20 rounded-lg bg-gray-100 animate-pulse" />
+          ))}
+        </div>
+      ) : isError ? (
+        <p className="text-sm text-red-600 py-4">Failed to load raffles.</p>
+      ) : active.length === 0 ? (
+        <p className="text-sm text-gray-500 py-6 text-center">No open raffles right now.</p>
+      ) : (
+        <div className="space-y-3">
+          {active.map((r) => {
+            const endsLabel =
+              r.endsIn <= 0 ? 'Ended' :
+              r.endsIn >= 86_400 ? `${Math.floor(r.endsIn / 86_400)}d left` :
+              `${Math.floor(r.endsIn / 3600)}h ${Math.floor((r.endsIn % 3600) / 60)}m left`
 
-              const closing = busyId === r.id && !r.canDraw;
-              const drawing = busyId === r.id && r.canDraw;
+            const badge = TYPE_BADGE[r.raffleType] ?? TYPE_BADGE[0]
+            const ticketPct = r.maxTickets > 0 ? (r.totalTickets / r.maxTickets) * 100 : 0
 
-              return (
-                <div key={r.id} className="rounded-lg border p-4 bg-white flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">
-                      Raffle #{r.id}{" "}
-                      <span className="ml-2 text-xs rounded bg-gray-200 px-2 py-0.5">{badge(r.raffleType)}</span>
-                      <span className={`ml-2 text-xs rounded px-2 py-0.5 ${r.randRequested ? "bg-blue-100 text-blue-700" : "bg-yellow-100 text-yellow-700"}`}>
-                        {r.randRequested ? "VRF requested" : "VRF not requested"}
+            return (
+              <div key={r.id} className="rounded-lg border bg-gray-50 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900">Round #{r.id}</span>
+                      <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${badge.color}`}>
+                        {badge.label}
+                      </span>
+                      <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${r.randRequested ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
+                        {r.randRequested ? 'VRF ✓' : 'VRF pending'}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Tickets: {r.totalTickets}/{r.maxTickets}
-                      {r.maxReached ? <span className="ml-1 text-green-600">Max reached</span> : null}
-                      {" · "}Ends: {endsLabel}
-                      {" · "}
-                      {r.meetsThreshold ? <span className="text-green-700">10% threshold</span> : <span className="text-amber-700">&lt;10% threshold</span>}
-                    </p>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500">
+                          {r.totalTickets}/{r.maxTickets} tickets
+                          {r.maxReached && <span className="ml-1 text-green-600 font-medium">· max reached</span>}
+                        </span>
+                        <span className="text-xs text-gray-400">{endsLabel}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden w-48">
+                        <div
+                          className="h-full rounded-full bg-[#238D9D] transition-all"
+                          style={{ width: `${Math.min(ticketPct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <span className={`text-xs font-medium ${r.meetsThreshold ? 'text-green-700' : 'text-amber-700'}`}>
+                      {r.meetsThreshold ? '✓ 10% threshold met' : '⚠ Below 10% threshold'}
+                    </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
-                      className="inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                      className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition-colors"
                       disabled={!r.canClose || busyId === r.id || status === "pending"}
                       onClick={() => handleAction(r.id, "closeRaffle", "Closed & refunded", "Close failed")}
-                      title="Refund all tickets to participants"
                     >
-                      {closing ? "Closing…" : "Close & refund"}
+                      {busyId === r.id && !r.canDraw ? "Closing…" : "Close & refund"}
                     </button>
-
                     <button
-                      className="inline-flex items-center justify-center rounded-md bg-black text-white px-3 py-2 text-sm disabled:opacity-50"
+                      className="inline-flex items-center justify-center rounded-lg bg-[#238D9D] text-white px-3.5 py-2 text-sm font-medium hover:bg-[#1a6d7a] disabled:opacity-40 transition-colors"
                       disabled={!r.canDraw || busyId === r.id || status === "pending"}
                       onClick={() => handleAction(r.id, "drawWinner", "Draw complete for round", "Draw failed")}
                     >
-                      {drawing ? "Drawing…" : "Draw winner"}
+                      {busyId === r.id && r.canDraw ? "Drawing…" : "Draw winner"}
                     </button>
                   </div>
                 </div>
-              );
-            })}
-
-            {(!data || data.length === 0) && <p className="text-gray-500">No raffles found.</p>}
-          </div>
-        )}
-      </Card>
-    </main>
-  );
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }

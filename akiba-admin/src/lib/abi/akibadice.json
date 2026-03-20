@@ -1,0 +1,33 @@
+[
+  {
+    "inputs": [{ "internalType": "uint256", "name": "tier", "type": "uint256" }],
+    "name": "getTierStats",
+    "outputs": [
+      { "internalType": "uint64",  "name": "roundsCreated",  "type": "uint64"  },
+      { "internalType": "uint64",  "name": "roundsResolved", "type": "uint64"  },
+      { "internalType": "uint128", "name": "totalStaked",    "type": "uint128" },
+      { "internalType": "uint128", "name": "totalPayout",    "type": "uint128" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "player", "type": "address" }],
+    "name": "getPlayerStats",
+    "outputs": [
+      { "internalType": "uint64",  "name": "roundsJoined", "type": "uint64"  },
+      { "internalType": "uint64",  "name": "roundsWon",    "type": "uint64"  },
+      { "internalType": "uint128", "name": "totalStaked",  "type": "uint128" },
+      { "internalType": "uint128", "name": "totalWon",     "type": "uint128" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "roundId", "type": "uint256" }],
+    "name": "getRoundState",
+    "outputs": [{ "internalType": "uint8", "name": "", "type": "uint8" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
