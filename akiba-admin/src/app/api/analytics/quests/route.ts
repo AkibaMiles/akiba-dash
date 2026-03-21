@@ -52,8 +52,8 @@ export async function GET(req: NextRequest) {
     todayCounts[qid]      = Number(row.de_today) + Number(row.pe_today)
     weekCounts[qid]       = Number(row.de_week)  + Number(row.pe_week)
     // de_unique/pe_unique only present if function includes DISTINCT (optional)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    uniqueClaimersMap[qid]= Number((row as any).de_unique ?? 0) + Number((row as any).pe_unique ?? 0)
+    const r = row as Record<string, unknown>
+    uniqueClaimersMap[qid]= Number(r.de_unique ?? 0) + Number(r.pe_unique ?? 0)
   }
 
   const questCards = quests.map(q => ({
@@ -67,8 +67,8 @@ export async function GET(req: NextRequest) {
     claimsThisWeek: weekCounts[q.id]        ?? 0,
   }))
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const heatmap = (heatmapRes.data ?? []).map((r: any) => ({ date: r.dt as string, count: Number(r.cnt) }))
+  type HeatRow = { dt: string; cnt: number }
+  const heatmap = ((heatmapRes.data ?? []) as HeatRow[]).map((r) => ({ date: r.dt, count: Number(r.cnt) }))
 
   // Optional drill-down for a specific quest
   if (questId) {
