@@ -48,19 +48,20 @@ export async function GET(req: NextRequest) {
     )
   }
 
+  type StatsRow    = { quest_id: string; de_total: number; pe_total: number; de_unique: number; pe_unique: number }
+  type PeriodRow   = { quest_id: string; count: number }
+
   const allTimeCounts: Record<string, number> = {}
   const uniqueClaimersMap: Record<string, number> = {}
 
-  for (const row of (questStatsRes.data ?? [])) {
-    const qid = row.quest_id as string
-    allTimeCounts[qid]     = Number(row.de_total) + Number(row.pe_total)
-    const r = row as Record<string, unknown>
-    uniqueClaimersMap[qid] = Number(r.de_unique ?? 0) + Number(r.pe_unique ?? 0)
+  for (const row of (questStatsRes.data ?? []) as StatsRow[]) {
+    allTimeCounts[row.quest_id]     = Number(row.de_total) + Number(row.pe_total)
+    uniqueClaimersMap[row.quest_id] = Number(row.de_unique ?? 0) + Number(row.pe_unique ?? 0)
   }
 
   const periodCounts: Record<string, number> = {}
-  for (const row of (periodBreakdownRes.data ?? [])) {
-    periodCounts[row.quest_id as string] = Number(row.count)
+  for (const row of (periodBreakdownRes.data ?? []) as PeriodRow[]) {
+    periodCounts[row.quest_id] = Number(row.count)
   }
 
   const questCards = allQuests.map(q => ({
@@ -85,13 +86,17 @@ export async function GET(req: NextRequest) {
       supabase.from('streaks').select('current_streak').eq('quest_id', questId).gt('current_streak', 0),
     ])
 
-    const dailyClaims = (dailyClaimsRes.data ?? []).map(r => ({ date: r.date as string, count: Number(r.count) }))
+    type DailyRow  = { date: string; count: number }
+    type WalletRow = { address: string; count: number }
+    type StreakRow  = { current_streak: number }
 
-    const topWallets = (topWalletsRes.data ?? []).map(r => ({ address: r.address as string, count: Number(r.count) }))
+    const dailyClaims = ((dailyClaimsRes.data ?? []) as DailyRow[]).map(r => ({ date: r.date, count: Number(r.count) }))
+
+    const topWallets = ((topWalletsRes.data ?? []) as WalletRow[]).map(r => ({ address: r.address, count: Number(r.count) }))
 
     const buckets: Record<string, number> = { '1': 0, '2–5': 0, '6–14': 0, '15–30': 0, '30+': 0 }
-    for (const r of streakDistRes.data ?? []) {
-      const s = r.current_streak as number
+    for (const r of (streakDistRes.data ?? []) as StreakRow[]) {
+      const s = r.current_streak
       if (s === 1)      buckets['1']++
       else if (s <= 5)  buckets['2–5']++
       else if (s <= 14) buckets['6–14']++

@@ -86,8 +86,9 @@ export async function GET(req: NextRequest) {
   const raffleWeekly = allRaffleWeekly.filter(w => w.week >= fromWeek && w.week <= toWeek)
 
   // Quest breakdown — aggregated server-side via RPC
-  const rpcRows = questBreakdownRes.data ?? []
-  const questIds = rpcRows.map(r => r.quest_id as string)
+  type BreakdownRow = { quest_id: string; count: number }
+  const rpcRows = (questBreakdownRes.data ?? []) as BreakdownRow[]
+  const questIds = rpcRows.map(r => r.quest_id)
   const questTitles: Record<string, string> = {}
   if (questIds.length > 0) {
     const [{ data: quests }, { data: partnerQuests }] = await Promise.all([
@@ -98,8 +99,8 @@ export async function GET(req: NextRequest) {
     for (const q of partnerQuests ?? []) questTitles[q.id] = q.title
   }
   const questBreakdown = rpcRows.map(r => ({
-    questId: r.quest_id as string,
-    title: questTitles[r.quest_id as string] || 'Unknown Quest',
+    questId: r.quest_id,
+    title: questTitles[r.quest_id] || 'Unknown Quest',
     count: Number(r.count),
   }))
 
