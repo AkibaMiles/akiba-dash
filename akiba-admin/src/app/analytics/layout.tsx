@@ -3,14 +3,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, Users, Sparkles, RefreshCw, Link2, Dices, ArrowLeft,
+  LayoutDashboard, Users, Sparkles, Link2, Dices, ArrowLeft,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/analytics',              label: 'Overview',      icon: LayoutDashboard, exact: true },
   { href: '/analytics/pass-holders', label: 'Pass Holders',  icon: Users },
   { href: '/analytics/quests',       label: 'Quests',        icon: Sparkles },
-  { href: '/analytics/retention',    label: 'Retention',     icon: RefreshCw },
   { href: '/analytics/on-chain',     label: 'On-Chain',      icon: Link2 },
   { href: '/analytics/dice',         label: 'Dice Game',     icon: Dices },
 ]

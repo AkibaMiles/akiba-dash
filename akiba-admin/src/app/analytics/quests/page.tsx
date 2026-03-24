@@ -9,7 +9,7 @@ import { ChartSkeleton } from '@/components/analytics/Skeletons'
 import { EmptyChart } from '@/components/analytics/EmptyChart'
 import { WalletAddress } from '@/components/analytics/WalletAddress'
 import { AKIBA_TEAL } from '@/lib/constants'
-import { X, Sparkles } from 'lucide-react'
+import { X, Sparkles, Link2 } from 'lucide-react'
 
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
@@ -50,8 +50,8 @@ interface QuestCard {
   rewardPoints: number
   totalClaims: number
   uniqueClaimers: number
-  claimsToday: number
-  claimsThisWeek: number
+  periodClaims: number
+  isPartner: boolean
 }
 
 interface DrillDown {
@@ -128,6 +128,7 @@ export default function QuestsPage() {
   const [from, setFrom] = useState(daysAgo(30))
   const [to, setTo] = useState(today)
   const [selectedQuest, setSelectedQuest] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const { data, loading, error } = useAnalyticsQuery<QuestsData>('/api/analytics/quests', {
     from,
@@ -137,6 +138,10 @@ export default function QuestsPage() {
 
   const maxClaims = Math.max(...(data?.questCards.map(q => q.totalClaims) ?? [1]))
 
+  const filteredCards = (data?.questCards ?? []).filter(q =>
+    q.title.toLowerCase().includes(search.toLowerCase()),
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -144,7 +149,16 @@ export default function QuestsPage() {
           <h1 className="text-xl font-bold text-gray-900">Quest Analytics</h1>
           <p className="text-sm text-gray-400 mt-0.5">Performance of all active quests</p>
         </div>
-        <DateRangePicker from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="search"
+            placeholder="Search quests…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#238D9D]/30 w-48"
+          />
+          <DateRangePicker from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t) }} />
+        </div>
       </div>
 
       {/* Error display */}
@@ -171,66 +185,75 @@ export default function QuestsPage() {
           )}
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {data.questCards.map(q => {
-            const isSelected = selectedQuest === q.id
-            const barWidth = maxClaims > 0 ? (q.totalClaims / maxClaims) * 100 : 0
-            return (
-              <button
-                key={q.id}
-                onClick={() => setSelectedQuest(isSelected ? null : q.id)}
-                className={`rounded-xl border p-4 text-left transition-all bg-white ${
-                  isSelected
-                    ? 'border-[#238D9D] shadow-md ring-2 ring-[#238D9D]/10'
-                    : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-                }`}
-              >
-                {/* Card header */}
-                <div className="flex items-start gap-2 mb-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#238D9D]/10">
-                    <Sparkles size={14} className="text-[#238D9D]" />
+        <>
+          {filteredCards.length === 0 && search && (
+            <p className="text-sm text-gray-400 py-4">No quests match &ldquo;{search}&rdquo;</p>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredCards.map(q => {
+              const isSelected = selectedQuest === q.id
+              const barWidth = maxClaims > 0 ? (q.totalClaims / maxClaims) * 100 : 0
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => setSelectedQuest(isSelected ? null : q.id)}
+                  className={`rounded-xl border p-4 text-left transition-all bg-white ${
+                    isSelected
+                      ? 'border-[#238D9D] shadow-md ring-2 ring-[#238D9D]/10'
+                      : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                  }`}
+                >
+                  {/* Card header */}
+                  <div className="flex items-start gap-2 mb-3">
+                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${q.isPartner ? 'bg-violet-50' : 'bg-[#238D9D]/10'}`}>
+                      {q.isPartner
+                        ? <Link2 size={14} className="text-violet-500" />
+                        : <Sparkles size={14} className="text-[#238D9D]" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">{q.title}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {q.isPartner && (
+                          <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">Partner</span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[#238D9D]/10 px-2 py-0.5 text-xs font-medium text-[#238D9D]">
+                      {q.rewardPoints}pts
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">{q.title}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-[#238D9D]/10 px-2 py-0.5 text-xs font-medium text-[#238D9D]">
-                    {q.rewardPoints}pts
-                  </span>
-                </div>
 
-                {/* Stats grid */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                  <div>
-                    <p className="text-xl font-bold text-gray-900 tabular-nums">{q.totalClaims.toLocaleString()}</p>
-                    <p className="text-gray-400">all-time claims</p>
+                  {/* Period claims — prominent */}
+                  <div className="mb-3">
+                    <p className="text-2xl font-bold text-gray-900 tabular-nums">{q.periodClaims.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">claims in period</p>
                   </div>
-                  <div>
-                    <p className="text-xl font-bold text-gray-900 tabular-nums">{q.uniqueClaimers.toLocaleString()}</p>
-                    <p className="text-gray-400">unique wallets</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-700 tabular-nums">{q.claimsToday}</p>
-                    <p className="text-gray-400">today</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-700 tabular-nums">{q.claimsThisWeek}</p>
-                    <p className="text-gray-400">this week</p>
-                  </div>
-                </div>
 
-                {/* Progress bar */}
-                <div className="mt-3">
+                  {/* Secondary stats */}
+                  <div className="flex gap-4 text-xs mb-3">
+                    <div>
+                      <p className="font-semibold text-gray-600 tabular-nums">{q.totalClaims.toLocaleString()}</p>
+                      <p className="text-gray-400">all-time</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-600 tabular-nums">{q.uniqueClaimers.toLocaleString()}</p>
+                      <p className="text-gray-400">unique wallets</p>
+                    </div>
+                  </div>
+
+                  {/* Progress bar — relative to top quest */}
                   <div className="h-1 w-full rounded-full bg-gray-100">
                     <div
                       className="h-1 rounded-full transition-all duration-500"
                       style={{ width: `${barWidth}%`, backgroundColor: AKIBA_TEAL }}
                     />
                   </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
+                </button>
+              )
+            })}
+          </div>
+        </>
       )}
 
       {/* Drill-down panel */}
@@ -241,7 +264,7 @@ export default function QuestsPage() {
               <h2 className="font-semibold text-gray-900">
                 {data.questCards.find(q => q.id === selectedQuest)?.title}
               </h2>
-              <p className="text-xs text-gray-400 mt-0.5">Quest drill-down</p>
+              <p className="text-xs text-gray-400 mt-0.5">Drill-down · {from} → {to}</p>
             </div>
             <button
               onClick={() => setSelectedQuest(null)}
@@ -253,7 +276,7 @@ export default function QuestsPage() {
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Daily claims chart */}
             <div className="rounded-xl border bg-white p-4">
-              <p className="mb-3 text-sm font-semibold text-gray-700">Daily Claims (30d)</p>
+              <p className="mb-3 text-sm font-semibold text-gray-700">Daily Claims</p>
               {!data.drillDown.dailyClaims.length ? (
                 <EmptyChart />
               ) : (

@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import { useAnalyticsQuery } from '@/hooks/useAnalyticsQuery'
@@ -10,7 +10,7 @@ import { DateRangePicker } from '@/components/analytics/DateRangePicker'
 import { ChartSkeleton } from '@/components/analytics/Skeletons'
 import { EmptyChart } from '@/components/analytics/EmptyChart'
 import { AKIBA_TEAL } from '@/lib/constants'
-import { Award, Wallet, TrendingUp, Zap, Activity, Flame } from 'lucide-react'
+import { Award, Wallet, TrendingUp, Zap, Activity, Ticket, DollarSign, Coins, PiggyBank } from 'lucide-react'
 
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
@@ -23,7 +23,9 @@ interface OverviewData {
     conversionRate: number
     questClaims: number
     activeWallets7d: number
-    balanceStreakWallets: number
+    savers10: number
+    savers30: number
+    savers100: number
     changes: {
       passHolders: number | null
       totalWallets: number | null
@@ -31,9 +33,15 @@ interface OverviewData {
       activeWallets7d: number | null
     }
   }
-  passAdoption: { date: string; cumulative: number }[]
+  passAdoption: { date: string; count: number }[]
   weeklyActive: { week: string; count: number }[]
   questBreakdown: { questId: string; title: string; count: number }[]
+  raffle: {
+    totalRounds: number
+    totalUSDT: number
+    totalAKIBA: number
+    weekly: { week: string; activeUsers: number }[]
+  }
 }
 
 function fmtDate(d: string) {
@@ -141,34 +149,76 @@ export default function OverviewPage() {
           color="green"
           loading={loading}
         />
+      </div>
+
+      {/* Savings KPI row */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KPICard
-          title="$10 Streak Wallets"
-          value={kpis?.balanceStreakWallets.toLocaleString() ?? '—'}
-          subtitle="active streak"
-          icon={Flame}
-          color="rose"
+          title="Active $10 Savers"
+          value={kpis?.savers10.toLocaleString() ?? '—'}
+          subtitle="current streak > 0"
+          icon={PiggyBank}
+          color="green"
+          loading={loading}
+        />
+        <KPICard
+          title="Active $30 Savers"
+          value={kpis?.savers30.toLocaleString() ?? '—'}
+          subtitle="current streak > 0"
+          icon={PiggyBank}
+          color="teal"
+          loading={loading}
+        />
+        <KPICard
+          title="Active $100 Savers"
+          value={kpis?.savers100.toLocaleString() ?? '—'}
+          subtitle="current streak > 0"
+          icon={PiggyBank}
+          color="violet"
+          loading={loading}
+        />
+      </div>
+
+      {/* Raffle KPI row */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <KPICard
+          title="Raffle Rounds"
+          value={data?.raffle.totalRounds.toLocaleString() ?? '—'}
+          subtitle="all-time"
+          icon={Ticket}
+          color="violet"
+          loading={loading}
+        />
+        <KPICard
+          title="USDT Distributed"
+          value={data?.raffle.totalUSDT ? `$${data.raffle.totalUSDT.toLocaleString()}` : '—'}
+          subtitle="all-time raffles"
+          icon={DollarSign}
+          color="green"
+          loading={loading}
+        />
+        <KPICard
+          title="AKIBA Distributed"
+          value={data?.raffle.totalAKIBA ? data.raffle.totalAKIBA.toLocaleString() : '—'}
+          subtitle="all-time raffles"
+          icon={Coins}
+          color="amber"
           loading={loading}
         />
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Pass Adoption — area chart */}
+        {/* Pass Adoption — daily new mints */}
         <ChartCard
-          title="Pass Adoption"
-          subtitle="Cumulative Prosperity Pass claims over time"
+          title="New Pass Mints"
+          subtitle="Prosperity Passes minted per day in selected period"
           loading={loading}
           empty={!data?.passAdoption.length}
         >
           <div className="overflow-x-auto">
             <ResponsiveContainer width="100%" height={240} minWidth={300}>
-              <AreaChart data={data?.passAdoption} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gradTeal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={AKIBA_TEAL} stopOpacity={0.25} />
-                    <stop offset="100%" stopColor={AKIBA_TEAL} stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
+              <BarChart data={data?.passAdoption} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="4 4" stroke="#f3f4f6" vertical={false} />
                 <XAxis
                   dataKey="date"
@@ -189,18 +239,10 @@ export default function OverviewPage() {
                 <Tooltip
                   {...tooltipStyle}
                   labelFormatter={(d) => fmtDate(String(d))}
-                  formatter={(v) => [Number(v).toLocaleString(), 'Total passes']}
+                  formatter={(v) => [Number(v).toLocaleString(), 'New passes']}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="cumulative"
-                  stroke={AKIBA_TEAL}
-                  strokeWidth={2.5}
-                  fill="url(#gradTeal)"
-                  dot={false}
-                  activeDot={{ r: 4, strokeWidth: 0, fill: AKIBA_TEAL }}
-                />
-              </AreaChart>
+                <Bar dataKey="count" fill={AKIBA_TEAL} fillOpacity={0.85} radius={[4, 4, 0, 0]} maxBarSize={48} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </ChartCard>
@@ -250,6 +292,42 @@ export default function OverviewPage() {
           </div>
         </ChartCard>
       </div>
+
+      {/* Raffle Weekly Participants */}
+      <ChartCard
+        title="Weekly Raffle Participants"
+        subtitle="Active users in raffle rounds per week"
+        loading={loading}
+        empty={!data?.raffle.weekly.length}
+      >
+        <div className="overflow-x-auto">
+          <ResponsiveContainer width="100%" height={240} minWidth={300}>
+            <BarChart data={data?.raffle.weekly} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="30%">
+              <CartesianGrid strokeDasharray="4 4" stroke="#f3f4f6" vertical={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tickFormatter={fmtNum}
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                axisLine={false}
+                tickLine={false}
+                domain={[0, 'auto']}
+                width={36}
+              />
+              <Tooltip
+                {...tooltipStyle}
+                formatter={(v) => [Number(v).toLocaleString(), 'Active users']}
+              />
+              <Bar dataKey="activeUsers" fill="#7c3aed" fillOpacity={0.8} radius={[4, 4, 0, 0]} maxBarSize={48} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </ChartCard>
 
       {/* Quest Breakdown */}
       <ChartCard

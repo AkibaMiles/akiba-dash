@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { QUEST_IDS } from '@/lib/constants'
+import {
+  isoWeek,
+  fetchDuneTotalWallets,
+  fetchDuneWeeklyActive,
+  fetchDuneRaffleStats,
+  fetchDuneRaffleWeekly,
+} from '@/lib/dune'
 
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
-}
-
-/** ISO 8601 week key, e.g. "2025-W03" */
-function isoWeek(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00Z')
-  // Shift to the nearest Thursday (ISO week belongs to Thursday's year)
-  const thu = new Date(d)
-  thu.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
-  const jan1 = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1))
-  const week = Math.ceil(((thu.getTime() - jan1.getTime()) / 86400000 + 1) / 7)
-  return `${thu.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
 function pct(current: number, prev: number): number | null {
@@ -35,97 +31,77 @@ export async function GET(req: NextRequest) {
   const rangeMs = toDate.getTime() - fromDate.getTime()
   const prevFrom = new Date(fromDate.getTime() - rangeMs).toISOString().split('T')[0]
   const prevTo = from
-  const sevenDaysAgo = daysAgo(7)
-  const prevSevenDaysStart = daysAgo(14)
 
   const [
-    // Use passport_ops (type=burn, status=completed) for accurate pass holder count
     passOpsAllRes,
     passOpsPrevRes,
-    totalWalletsRes,
-    prevTotalWalletsRes,
+    totalWallets,
     questClaimsCurrentRes,
     questClaimsPrevRes,
-    activeNowRes,
-    activePrevRes,
-    balanceStreakRes,
+    savers10Res,
+    savers30Res,
+    savers100Res,
     passAdoptionRes,
-    dailyActiveRes,
     questBreakdownRes,
-    partnerBreakdownRes,
+    allWeeklyActive,
+    raffleStats,
+    allRaffleWeekly,
   ] = await Promise.all([
-    supabase.from('passport_ops').select('address').eq('type', 'burn').eq('status', 'completed').limit(500000),
-    supabase.from('passport_ops').select('address').eq('type', 'burn').eq('status', 'completed').lte('created_at', prevTo + 'T23:59:59Z').limit(500000),
-    supabase.from('users').select('*', { count: 'exact', head: true }),
-    supabase.from('users').select('*', { count: 'exact', head: true }).lte('created_at', prevTo + 'T23:59:59Z'),
+    supabase.from('passport_ops').select('*', { count: 'exact', head: true }).eq('type', 'burn').eq('status', 'completed'),
+    supabase.from('passport_ops').select('*', { count: 'exact', head: true }).eq('type', 'burn').eq('status', 'completed').lte('created_at', prevTo + 'T23:59:59Z'),
+    fetchDuneTotalWallets(),
     supabase.from('daily_engagements').select('*', { count: 'exact', head: true }).gte('claimed_at', from).lte('claimed_at', to),
     supabase.from('daily_engagements').select('*', { count: 'exact', head: true }).gte('claimed_at', prevFrom).lte('claimed_at', prevTo),
-    supabase.from('daily_engagements').select('user_address').gte('claimed_at', sevenDaysAgo).lte('claimed_at', today).limit(500000),
-    supabase.from('daily_engagements').select('user_address').gte('claimed_at', prevSevenDaysStart).lte('claimed_at', sevenDaysAgo).limit(500000),
-    supabase.from('streaks').select('user_address').eq('quest_id', QUEST_IDS.BALANCE_STREAK_10).gt('current_streak', 0).limit(500000),
-    supabase.from('passport_ops').select('created_at').eq('type', 'burn').eq('status', 'completed').order('created_at').limit(500000),
-    supabase.from('daily_engagements').select('claimed_at, user_address').gte('claimed_at', from).lte('claimed_at', to).limit(500000),
-    supabase.from('daily_engagements').select('quest_id').gte('claimed_at', from).lte('claimed_at', to).limit(500000),
-    supabase.from('partner_engagements').select('partner_quest_id').gte('claimed_at', from).lte('claimed_at', to).limit(500000),
+    supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_10).gt('current_streak', 0),
+    supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_30).gt('current_streak', 0),
+    supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_100).gt('current_streak', 0),
+    supabase.from('passport_ops').select('created_at').eq('type', 'burn').eq('status', 'completed')
+      .gte('created_at', from).lte('created_at', to + 'T23:59:59Z')
+      .order('created_at'),
+    supabase.rpc('get_quest_claim_breakdown', { from_ts: from, to_ts: to + 'T23:59:59Z' }),
+    fetchDuneWeeklyActive(),
+    fetchDuneRaffleStats(),
+    fetchDuneRaffleWeekly(),
   ])
 
-  // Accurate pass holder counts via distinct addresses in passport_ops
-  const passHolders = new Set((passOpsAllRes.data ?? []).map(r => r.address as string)).size
-  const prevPassHolders = new Set((passOpsPrevRes.data ?? []).map(r => r.address as string)).size
-
-  const totalWallets = totalWalletsRes.count ?? 0
-  const prevTotalWallets = prevTotalWalletsRes.count ?? 0
+  const passHolders = passOpsAllRes.count ?? 0
+  const prevPassHolders = passOpsPrevRes.count ?? 0
   const questClaims = questClaimsCurrentRes.count ?? 0
   const prevQuestClaims = questClaimsPrevRes.count ?? 0
-  const activeWallets7d = new Set((activeNowRes.data ?? []).map(r => r.user_address as string)).size
-  const prevActiveWallets = new Set((activePrevRes.data ?? []).map(r => r.user_address as string)).size
-  const balanceStreakWallets = new Set((balanceStreakRes.data ?? []).map(r => r.user_address as string)).size
+  const activeWallets7d = allWeeklyActive.at(-1)?.count ?? 0
+  const prevActiveWallets = allWeeklyActive.at(-2)?.count ?? 0
 
-  // Pass adoption cumulative line chart (all-time, not filtered by date range)
+  // Pass adoption — daily new mints in selected period
   const byDate: Record<string, number> = {}
   for (const op of passAdoptionRes.data ?? []) {
     const d = (op.created_at as string).split('T')[0]
     byDate[d] = (byDate[d] ?? 0) + 1
   }
-  let cumulative = 0
-  const passAdoption = Object.keys(byDate).sort().map(date => {
-    cumulative += byDate[date]
-    return { date, cumulative }
-  })
+  const passAdoption = Object.keys(byDate).sort().map(date => ({ date, count: byDate[date] }))
 
-  // Weekly active wallets bar chart (within selected range, grouped by ISO week)
-  const weekMap: Record<string, Set<string>> = {}
-  for (const row of dailyActiveRes.data ?? []) {
-    const wk = isoWeek(row.claimed_at as string)
-    if (!weekMap[wk]) weekMap[wk] = new Set()
-    weekMap[wk].add(row.user_address as string)
-  }
-  const weeklyActive = Object.keys(weekMap).sort().map(week => ({
-    week,
-    count: weekMap[week].size,
-  }))
+  // Filter Dune weekly data to selected date range
+  const fromWeek = isoWeek(from)
+  const toWeek = isoWeek(to)
+  const weeklyActive = allWeeklyActive.filter(w => w.week >= fromWeek && w.week <= toWeek)
+  const raffleWeekly = allRaffleWeekly.filter(w => w.week >= fromWeek && w.week <= toWeek)
 
-  // Quest breakdown horizontal bar (within selected range, both engagement sources)
-  // NOTE: daily_engagements uses quest_id; partner_engagements uses partner_quest_id
-  const questCounts: Record<string, number> = {}
-  for (const row of (questBreakdownRes.data ?? [])) {
-    const qid = row.quest_id as string
-    questCounts[qid] = (questCounts[qid] ?? 0) + 1
-  }
-  for (const row of (partnerBreakdownRes.data ?? [])) {
-    const qid = row.partner_quest_id as string
-    questCounts[qid] = (questCounts[qid] ?? 0) + 1
-  }
-  const questIds = Object.keys(questCounts)
+  // Quest breakdown — aggregated server-side via RPC
+  const rpcRows = questBreakdownRes.data ?? []
+  const questIds = rpcRows.map(r => r.quest_id as string)
   const questTitles: Record<string, string> = {}
   if (questIds.length > 0) {
-    const { data: quests } = await supabase.from('quests').select('id, title').in('id', questIds)
+    const [{ data: quests }, { data: partnerQuests }] = await Promise.all([
+      supabase.from('quests').select('id, title').in('id', questIds),
+      supabase.from('partner_quests').select('id, title').in('id', questIds),
+    ])
     for (const q of quests ?? []) questTitles[q.id] = q.title
+    for (const q of partnerQuests ?? []) questTitles[q.id] = q.title
   }
-  const questBreakdown = Object.entries(questCounts)
-    .map(([questId, count]) => ({ questId, title: questTitles[questId] || 'Unknown Quest', count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
+  const questBreakdown = rpcRows.map(r => ({
+    questId: r.quest_id as string,
+    title: questTitles[r.quest_id as string] || 'Unknown Quest',
+    count: Number(r.count),
+  }))
 
   return NextResponse.json({
     kpis: {
@@ -134,16 +110,26 @@ export async function GET(req: NextRequest) {
       conversionRate: totalWallets > 0 ? (passHolders / totalWallets) * 100 : 0,
       questClaims,
       activeWallets7d,
-      balanceStreakWallets,
+      savers10:  savers10Res.count  ?? 0,
+      savers30:  savers30Res.count  ?? 0,
+      savers100: savers100Res.count ?? 0,
       changes: {
-        passHolders: pct(passHolders, prevPassHolders),
-        totalWallets: pct(totalWallets, prevTotalWallets),
-        questClaims: pct(questClaims, prevQuestClaims),
+        passHolders:   pct(passHolders, prevPassHolders),
+        totalWallets:  null,
+        questClaims:   pct(questClaims, prevQuestClaims),
         activeWallets7d: pct(activeWallets7d, prevActiveWallets),
       },
     },
     passAdoption,
     weeklyActive,
     questBreakdown,
+    raffle: {
+      totalRounds:       raffleStats.totalRounds,
+      totalUSDT:         raffleStats.totalUSDT,
+      totalAKIBA:        raffleStats.totalAKIBA,
+      totalPointsSpent:  raffleStats.totalPointsSpent,
+      totalParticipations: raffleStats.totalParticipations,
+      weekly:            raffleWeekly,
+    },
   })
 }

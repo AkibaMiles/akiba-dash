@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   AreaChart, Area,
 } from 'recharts'
-import { Dices, RefreshCw, Flame, Trophy, TrendingUp, Coins, BarChart2 } from 'lucide-react'
+import { Dices, RefreshCw, Flame, Trophy, BarChart2 } from 'lucide-react'
 import { AKIBA_TEAL } from '@/lib/constants'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,7 +92,6 @@ function TierCard({ stat }: { stat: TierStat }) {
   const completionPct = stat.roundsCreated > 0
     ? Math.round((stat.roundsResolved / stat.roundsCreated) * 100)
     : 0
-  const staked = formatMiles(stat.totalStaked)
   const payout = formatMiles(stat.totalPayout)
 
   return (
@@ -107,13 +106,9 @@ function TierCard({ stat }: { stat: TierStat }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+      <div className="grid grid-cols-3 gap-4 text-sm mb-4">
         <div>
-          <p className="text-xs text-gray-400">Total Staked</p>
-          <p className="font-semibold text-gray-800 tabular-nums">{staked} M</p>
-        </div>
-        <div>
-          <p className="text-xs text-gray-400">Total Payout</p>
+          <p className="text-xs text-gray-400">Miles Paid Out</p>
           <p className="font-semibold text-gray-800 tabular-nums">{payout} M</p>
         </div>
         <div>
@@ -189,12 +184,7 @@ export default function DicePage() {
   // Derived KPIs
   const totalRoundsResolved = data?.tierStats.reduce((s, t) => s + t.roundsResolved, 0) ?? 0
   const totalRoundsCreated  = data?.tierStats.reduce((s, t) => s + t.roundsCreated, 0) ?? 0
-  const totalStakedBig  = data?.tierStats.reduce((s, t) => s + BigInt(t.totalStaked),  0n) ?? 0n
   const totalPayoutBig  = data?.tierStats.reduce((s, t) => s + BigInt(t.totalPayout), 0n) ?? 0n
-  const houseRetention  = totalStakedBig > 0n
-    ? (Number(totalStakedBig - totalPayoutBig) / Number(totalStakedBig) * 100).toFixed(1)
-    : '—'
-
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
   return (
@@ -245,32 +235,11 @@ export default function DicePage() {
             color="teal"
           />
           <KPICard
-            label="Total Miles Staked"
-            value={formatMiles(totalStakedBig.toString())}
-            sub="AkibaMiles"
-            icon={Coins}
-            color="violet"
-          />
-          <KPICard
             label="Total Miles Paid Out"
             value={formatMiles(totalPayoutBig.toString())}
-            sub="AkibaMiles"
+            sub="prize pool distributed"
             icon={Trophy}
             color="green"
-          />
-          <KPICard
-            label="House Retention"
-            value={`${houseRetention}%`}
-            sub="(staked − payout) / staked"
-            icon={TrendingUp}
-            color="amber"
-          />
-          <KPICard
-            label="Active Game Streakers"
-            value={(data?.gameStreakWallets ?? 0).toLocaleString()}
-            sub="current_streak > 0"
-            icon={Flame}
-            color="teal"
           />
           <KPICard
             label="Total Rounds Created"
