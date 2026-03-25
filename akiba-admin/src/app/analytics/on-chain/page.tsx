@@ -39,7 +39,7 @@ interface DiceTier {
 interface OnChainData {
   savings: SavingsTier[]
   txActivity: TxQuest[]
-  summary: { totalOnchainClaims: number; totalSavers: number }
+  summary: { totalQuestClaims: number; totalSavers: number; estimatedTotalTxns: number }
   passport: { totalBurned: number; refundCount: number; pendingQueue: number }
   raffle: {
     totalRounds: number
@@ -47,6 +47,10 @@ interface OnChainData {
     totalAKIBA: number
     totalPointsSpent: number
     totalParticipations: number
+    usdtRounds: number
+    akibaRounds: number
+    usdtParticipations: number
+    akibaParticipations: number
   }
   dice: DiceTier[]
 }
@@ -93,7 +97,7 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 }
 
 export default function OnChainPage() {
-  const [activePeriod, setActivePeriod] = useState<number | null>(30)
+  const [activePeriod, setActivePeriod] = useState<number | null>(null)
   const today = new Date().toISOString().split('T')[0]
   const from = activePeriod !== null ? daysAgo(activePeriod) : undefined
 
@@ -131,11 +135,19 @@ export default function OnChainPage() {
       {/* Summary KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KPICard
-          title="Total On-Chain Claims"
-          value={data?.summary.totalOnchainClaims.toLocaleString() ?? '—'}
-          subtitle="all on-chain quests"
+          title="Est. On-Chain Txns"
+          value={data?.summary.estimatedTotalTxns ? fmtNum(data.summary.estimatedTotalTxns) : '—'}
+          subtitle="quests + raffle"
           icon={Zap}
           color="teal"
+          loading={loading}
+        />
+        <KPICard
+          title="Quest Claims"
+          value={data?.summary.totalQuestClaims.toLocaleString() ?? '—'}
+          subtitle="all quests incl. check-in"
+          icon={Activity}
+          color="amber"
           loading={loading}
         />
         <KPICard
@@ -147,19 +159,11 @@ export default function OnChainPage() {
           loading={loading}
         />
         <KPICard
-          title="Raffle Rounds"
-          value={data?.raffle.totalRounds.toLocaleString() ?? '—'}
-          subtitle="all-time"
+          title="Raffle Participations"
+          value={data?.raffle.totalParticipations.toLocaleString() ?? '—'}
+          subtitle="across all rounds"
           icon={Ticket}
           color="violet"
-          loading={loading}
-        />
-        <KPICard
-          title="Points on Raffle"
-          value={data?.raffle.totalPointsSpent ? fmtNum(data.raffle.totalPointsSpent) : '—'}
-          subtitle="total spent on tickets"
-          icon={Activity}
-          color="amber"
           loading={loading}
         />
       </div>
@@ -199,17 +203,10 @@ export default function OnChainPage() {
           <ChartSkeleton />
         ) : !data?.txActivity.length ? (
           <EmptyChart />
-        ) : (() => {
-          const diceTxns = (data.dice ?? []).reduce((s, r) =>
-            s + r.roundsResolved * 7 + (r.roundsCreated - r.roundsResolved) * 6, 0)
-          const chartData = [
-            ...data.txActivity,
-            { label: 'Dice Game', questId: 'dice', totalClaims: diceTxns, uniqueWallets: 0 },
-          ].sort((a, b) => b.totalClaims - a.totalClaims)
-          return (
-          <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 44)}>
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(200, data.txActivity.length * 44)}>
             <BarChart
-              data={chartData}
+              data={data.txActivity}
               layout="vertical"
               margin={{ top: 0, right: 60, left: 0, bottom: 0 }}
               barCategoryGap="25%"
@@ -232,29 +229,35 @@ export default function OnChainPage() {
               />
               <Tooltip
                 {...tooltipStyle}
-                formatter={(v, name, props) => {
-                  if (props.payload?.questId === 'dice' && name === 'totalClaims') {
-                    return [Number(v).toLocaleString(), 'Est. on-chain txns']
-                  }
-                  return [Number(v).toLocaleString(), name === 'totalClaims' ? 'Total claims' : 'Unique wallets']
-                }}
+                formatter={(v, name) => [
+                  Number(v).toLocaleString(),
+                  name === 'totalClaims' ? 'Total claims' : 'Unique wallets',
+                ]}
               />
               <Bar dataKey="totalClaims"  fill={AKIBA_TEAL}  fillOpacity={0.85} radius={[0, 4, 4, 0]} maxBarSize={24} name="totalClaims" />
               <Bar dataKey="uniqueWallets" fill="#7c3aed" fillOpacity={0.6}  radius={[0, 4, 4, 0]} maxBarSize={24} name="uniqueWallets" />
             </BarChart>
           </ResponsiveContainer>
-          )
-        })()}
+        )}
       </Section>
 
       {/* Raffle */}
       <Section title="Raffle Participation" subtitle="On-chain raffle data from Dune — all-time">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <KPICard
-            title="Rounds"
+            title="Total Rounds"
             value={data?.raffle.totalRounds.toLocaleString() ?? '—'}
+            subtitle={`${data?.raffle.usdtRounds ?? 0} USDT · ${data?.raffle.akibaRounds ?? 0} AKIBA`}
             icon={Ticket}
             color="violet"
+            loading={loading}
+          />
+          <KPICard
+            title="Total Participations"
+            value={data?.raffle.totalParticipations.toLocaleString() ?? '—'}
+            subtitle={`${data?.raffle.usdtParticipations.toLocaleString() ?? 0} USDT · ${data?.raffle.akibaParticipations.toLocaleString() ?? 0} AKIBA`}
+            icon={Zap}
+            color="teal"
             loading={loading}
           />
           <KPICard
@@ -269,22 +272,6 @@ export default function OnChainPage() {
             value={data?.raffle.totalAKIBA ? data.raffle.totalAKIBA.toLocaleString() : '—'}
             icon={Coins}
             color="amber"
-            loading={loading}
-          />
-          <KPICard
-            title="Points Spent"
-            value={data?.raffle.totalPointsSpent ? fmtNum(data.raffle.totalPointsSpent) : '—'}
-            subtitle="on tickets"
-            icon={Activity}
-            color="teal"
-            loading={loading}
-          />
-          <KPICard
-            title="Participations"
-            value={data?.raffle.totalParticipations ? data.raffle.totalParticipations.toLocaleString() : '—'}
-            subtitle="across all rounds"
-            icon={Zap}
-            color="rose"
             loading={loading}
           />
         </div>

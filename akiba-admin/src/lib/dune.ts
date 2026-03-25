@@ -48,11 +48,22 @@ export interface RaffleStats {
   totalAKIBA: number
   totalPointsSpent: number
   totalParticipations: number
+  usdtRounds: number
+  akibaRounds: number
+  usdtParticipations: number
+  akibaParticipations: number
+}
+
+const EMPTY_RAFFLE_STATS: RaffleStats = {
+  totalRounds: 0, totalUSDT: 0, totalAKIBA: 0,
+  totalPointsSpent: 0, totalParticipations: 0,
+  usdtRounds: 0, akibaRounds: 0,
+  usdtParticipations: 0, akibaParticipations: 0,
 }
 
 export async function fetchDuneRaffleStats(from?: string, to?: string): Promise<RaffleStats> {
   const rows = await duneGet(5671783) as RaffleRound[] | null
-  if (!rows) return { totalRounds: 0, totalUSDT: 0, totalAKIBA: 0, totalPointsSpent: 0, totalParticipations: 0 }
+  if (!rows) return EMPTY_RAFFLE_STATS
   const fromMs = from ? new Date(from).getTime() : null
   const toMs   = to   ? new Date(to + 'T23:59:59Z').getTime() : null
   const filtered = rows.filter(r => {
@@ -63,12 +74,21 @@ export async function fetchDuneRaffleStats(from?: string, to?: string): Promise<
     return true
   })
   let totalUSDT = 0, totalAKIBA = 0, totalPointsSpent = 0, totalParticipations = 0
+  let usdtRounds = 0, akibaRounds = 0, usdtParticipations = 0, akibaParticipations = 0
   for (const r of filtered) {
     const amount = Number(r.total_rewards_distributed ?? 0)
-    if (r.reward_token === 'USDT') totalUSDT += amount
-    else if (r.reward_token === 'AKIBA') totalAKIBA += amount
-    totalPointsSpent += Number(r.total_spent ?? 0)
-    totalParticipations += Number(r.participants ?? 0)
+    const parts  = Number(r.participants ?? 0)
+    if (r.reward_token === 'USDT') {
+      totalUSDT += amount
+      usdtRounds++
+      usdtParticipations += parts
+    } else if (r.reward_token === 'AKIBA') {
+      totalAKIBA += amount
+      akibaRounds++
+      akibaParticipations += parts
+    }
+    totalPointsSpent  += Number(r.total_spent ?? 0)
+    totalParticipations += parts
   }
   return {
     totalRounds: filtered.length,
@@ -76,6 +96,10 @@ export async function fetchDuneRaffleStats(from?: string, to?: string): Promise<
     totalAKIBA: Math.round(totalAKIBA),
     totalPointsSpent: Math.round(totalPointsSpent),
     totalParticipations,
+    usdtRounds,
+    akibaRounds,
+    usdtParticipations,
+    akibaParticipations,
   }
 }
 

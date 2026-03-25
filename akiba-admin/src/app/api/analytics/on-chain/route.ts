@@ -47,6 +47,9 @@ export async function GET(req: NextRequest) {
     args: [BigInt(tier)],
   }))
 
+  const dateGte = from ?? '2000-01-01'
+  const dateLte = to + 'T23:59:59Z'
+
   const [
     onchainStatsRes,
     burnedRes,
@@ -54,21 +57,25 @@ export async function GET(req: NextRequest) {
     pendingRes,
     raffleStats,
     diceResults,
+    allDeRes,
+    allPeRes,
   ] = await Promise.all([
     supabase.rpc('get_onchain_quest_stats', {
       p_quest_ids: [...ONCHAIN_QUEST_IDS],
       from_ts: from ?? null,
-      to_ts: from ? to + 'T23:59:59Z' : null,
+      to_ts: from ? dateLte : null,
     }),
     supabase.from('passport_ops').select('amount').eq('type', 'burn').eq('status', 'completed')
-      .gte('created_at', from ? from : '2000-01-01')
-      .lte('created_at', to + 'T23:59:59Z'),
+      .gte('created_at', dateGte).lte('created_at', dateLte),
     supabase.from('passport_ops').select('*', { count: 'exact', head: true }).eq('type', 'refund').eq('status', 'completed')
-      .gte('created_at', from ? from : '2000-01-01')
-      .lte('created_at', to + 'T23:59:59Z'),
+      .gte('created_at', dateGte).lte('created_at', dateLte),
     supabase.from('mint_queue').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     fetchDuneRaffleStats(from ?? undefined, to),
     publicClient.multicall({ contracts: diceCalls }).catch(() => null),
+    supabase.from('daily_engagements').select('*', { count: 'exact', head: true })
+      .gte('claimed_at', dateGte).lte('claimed_at', dateLte),
+    supabase.from('partner_engagements').select('*', { count: 'exact', head: true })
+      .gte('claimed_at', dateGte).lte('claimed_at', dateLte),
   ])
 
   const statsMap: Record<string, { total_claims: number; unique_wallets: number; active_streakers: number }> = {}
@@ -115,12 +122,16 @@ export async function GET(req: NextRequest) {
     }
   })
 
+  const totalQuestClaims = (allDeRes.count ?? 0) + (allPeRes.count ?? 0)
+  const estimatedTotalTxns = totalQuestClaims + raffleStats.totalParticipations
+
   return NextResponse.json({
     savings,
     txActivity,
     summary: {
-      totalOnchainClaims: Object.values(statsMap).reduce((s, r) => s + r.total_claims, 0),
+      totalQuestClaims,
       totalSavers: savings.reduce((s, r) => s + r.activeHolders, 0),
+      estimatedTotalTxns,
     },
     passport: {
       totalBurned,
@@ -128,11 +139,15 @@ export async function GET(req: NextRequest) {
       pendingQueue: pendingRes.count ?? 0,
     },
     raffle: {
-      totalRounds:         raffleStats.totalRounds,
-      totalUSDT:           raffleStats.totalUSDT,
-      totalAKIBA:          raffleStats.totalAKIBA,
-      totalPointsSpent:    raffleStats.totalPointsSpent,
-      totalParticipations: raffleStats.totalParticipations,
+      totalRounds:          raffleStats.totalRounds,
+      totalUSDT:            raffleStats.totalUSDT,
+      totalAKIBA:           raffleStats.totalAKIBA,
+      totalPointsSpent:     raffleStats.totalPointsSpent,
+      totalParticipations:  raffleStats.totalParticipations,
+      usdtRounds:           raffleStats.usdtRounds,
+      akibaRounds:          raffleStats.akibaRounds,
+      usdtParticipations:   raffleStats.usdtParticipations,
+      akibaParticipations:  raffleStats.akibaParticipations,
     },
     dice: diceTiers,
   })
