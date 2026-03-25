@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { createPublicClient, http, type Abi, type Address } from 'viem'
 import { celo } from 'viem/chains'

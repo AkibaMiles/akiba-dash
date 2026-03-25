@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { QUEST_IDS } from '@/lib/constants'
@@ -55,9 +57,10 @@ export async function GET(req: NextRequest) {
     supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_10).gt('current_streak', 0),
     supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_30).gt('current_streak', 0),
     supabase.from('streaks').select('*', { count: 'exact', head: true }).eq('quest_id', QUEST_IDS.BALANCE_STREAK_100).gt('current_streak', 0),
-    supabase.from('passport_ops').select('created_at').eq('type', 'burn').eq('status', 'completed')
-      .gte('created_at', from).lte('created_at', to + 'T23:59:59Z')
-      .order('created_at'),
+    supabase.rpc('get_pass_adoption_daily', {
+      from_ts: from + 'T00:00:00Z',
+      to_ts:   to   + 'T23:59:59Z',
+    }),
     supabase.rpc('get_quest_claim_breakdown', { from_ts: from, to_ts: to + 'T23:59:59Z' }),
     fetchDuneWeeklyActive(),
     fetchDuneRaffleStats(),
@@ -71,13 +74,9 @@ export async function GET(req: NextRequest) {
   const activeWallets7d = allWeeklyActive.at(-1)?.count ?? 0
   const prevActiveWallets = allWeeklyActive.at(-2)?.count ?? 0
 
-  // Pass adoption — daily new mints in selected period
-  const byDate: Record<string, number> = {}
-  for (const op of passAdoptionRes.data ?? []) {
-    const d = (op.created_at as string).split('T')[0]
-    byDate[d] = (byDate[d] ?? 0) + 1
-  }
-  const passAdoption = Object.keys(byDate).sort().map(date => ({ date, count: byDate[date] }))
+  type AdoptionRow = { date: string; count: number }
+  const passAdoption = ((passAdoptionRes.data ?? []) as AdoptionRow[])
+    .map(r => ({ date: r.date, count: Number(r.count) }))
 
   // Filter Dune weekly data to selected date range
   const fromWeek = isoWeek(from)

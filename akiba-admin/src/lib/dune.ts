@@ -106,12 +106,12 @@ export async function fetchDuneRaffleStats(from?: string, to?: string): Promise<
 export async function fetchDuneRaffleWeekly(): Promise<{ week: string; activeUsers: number }[]> {
   const rows = await duneGet(5671559) as { timeline: string; active_users: number; token: string }[] | null
   if (!rows) return []
-  const seen = new Map<string, number>()
+  const totals = new Map<string, number>()
   for (const r of rows) {
     const week = isoWeek(r.timeline.split(' ')[0])
-    if (!seen.has(week)) seen.set(week, Number(r.active_users))
+    totals.set(week, (totals.get(week) ?? 0) + Number(r.active_users))
   }
-  return Array.from(seen.entries())
+  return Array.from(totals.entries())
     .map(([week, activeUsers]) => ({ week, activeUsers }))
     .sort((a, b) => a.week.localeCompare(b.week))
 }
