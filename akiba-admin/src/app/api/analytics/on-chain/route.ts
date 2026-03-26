@@ -6,6 +6,7 @@ import { celo } from 'viem/chains'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { ONCHAIN_QUEST_IDS, SAVINGS_QUEST_IDS } from '@/lib/constants'
 import { fetchDuneRaffleStats } from '@/lib/dune'
+import { archivedCountsInRange } from '@/lib/engagement-archive'
 import diceAbi from '@/lib/abi/akibadice.json'
 
 const DICE_CONTRACT = '0xf77e7395Aa5c89BcC8d6e23F67a9c7914AB9702a' as Address
@@ -124,7 +125,11 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  const totalQuestClaims = (allDeRes.count ?? 0) + (allPeRes.count ?? 0)
+  const archivedDe = archivedCountsInRange('daily_engagements',   from, to)
+  const archivedPe = archivedCountsInRange('partner_engagements', from, to)
+  const totalQuestClaims =
+    (allDeRes.count ?? 0) + archivedDe +
+    (allPeRes.count ?? 0) + archivedPe
   const estimatedTotalTxns = totalQuestClaims + raffleStats.totalParticipations
 
   return NextResponse.json({

@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { QUEST_IDS } from '@/lib/constants'
+import { archivedClaimsForUsers } from '@/lib/engagement-archive'
 
 export async function GET(req: NextRequest) {
   const supabase = getSupabaseAdmin()
@@ -65,7 +66,8 @@ export async function GET(req: NextRequest) {
   const referrers: Record<string, string | null> = {}
   for (const u of usersRes.data ?? []) referrers[u.user_address] = u.referrer_address
 
-  const claimCounts: Record<string, number> = {}
+  const archivedClaims = archivedClaimsForUsers(addresses)
+  const claimCounts: Record<string, number> = { ...archivedClaims }
   for (const c of claimCountsRes.data ?? []) {
     const a = c.user_address as string
     claimCounts[a] = (claimCounts[a] ?? 0) + 1

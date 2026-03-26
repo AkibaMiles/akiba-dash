@@ -10,6 +10,7 @@ import {
   fetchDuneRaffleStats,
   fetchDuneRaffleWeekly,
 } from '@/lib/dune'
+import { archivedCountsInRange } from '@/lib/engagement-archive'
 
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
@@ -69,8 +70,10 @@ export async function GET(req: NextRequest) {
 
   const passHolders = passOpsAllRes.count ?? 0
   const prevPassHolders = passOpsPrevRes.count ?? 0
-  const questClaims = questClaimsCurrentRes.count ?? 0
-  const prevQuestClaims = questClaimsPrevRes.count ?? 0
+  const questClaims =
+    (questClaimsCurrentRes.count ?? 0) + archivedCountsInRange('daily_engagements', from, to)
+  const prevQuestClaims =
+    (questClaimsPrevRes.count ?? 0) + archivedCountsInRange('daily_engagements', prevFrom, prevTo)
   const activeWallets7d = allWeeklyActive.at(-1)?.count ?? 0
   const prevActiveWallets = allWeeklyActive.at(-2)?.count ?? 0
 

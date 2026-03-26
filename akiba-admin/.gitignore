@@ -33,3 +33,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# engagement archive — monthly JSON files are large; totals.json is tracked
+/data/archive/daily_engagements/
+/data/archive/partner_engagements/

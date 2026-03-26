@@ -8,6 +8,9 @@ import managerAbi from "@/lib/abi/AkibaV3.json";
 import { RAFFLE_MANAGER } from "@/lib/raffle-contract";
 import type { Hex } from "viem";
 
+const MAX_DIRECT_TICKETS = 25_000;
+const CHUNK_BATCH_SIZE = 300;
+
 const TYPE_BADGE: Record<number, { label: string; color: string }> = {
   0: { label: 'Single',   color: 'bg-gray-100 text-gray-700' },
   1: { label: 'Top-3',    color: 'bg-blue-50 text-blue-700' },
@@ -15,28 +18,105 @@ const TYPE_BADGE: Record<number, { label: string; color: string }> = {
   3: { label: 'Physical', color: 'bg-amber-50 text-amber-700' },
 }
 
+type ChunkStep = {
+  id: number;
+  step: 'counting' | 'building' | 'finalizing' | 'drawing';
+  progress: number;
+  total: number;
+}
+
 export default function DrawPage() {
   const { data, isLoading, isError, refetch } = useDrawableRounds();
   const pc = usePublicClient();
   const { writeContractAsync, status } = useWriteContract();
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [chunkStep, setChunkStep] = useState<ChunkStep | null>(null);
 
-  async function handleAction(id: number, fn: "drawWinner" | "closeRaffle", successMsg: string, failMsg: string) {
+  async function handleClose(id: number) {
     try {
       setBusyId(id);
       const tx = await writeContractAsync({
         abi: managerAbi,
         address: RAFFLE_MANAGER,
-        functionName: fn,
+        functionName: "closeRaffle",
         args: [BigInt(id)],
       });
       await pc!.waitForTransactionReceipt({ hash: tx as Hex });
       await refetch();
-      alert(`${successMsg} #${id}`);
+      alert(`Closed & refunded round #${id}`);
     } catch (e: any) {
-      alert(e?.shortMessage || e?.message || failMsg);
+      alert(e?.shortMessage || e?.message || "Close failed");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleDraw(id: number, totalTickets: number) {
+    try {
+      setBusyId(id);
+
+      if (totalTickets > MAX_DIRECT_TICKETS) {
+        // Step 1: count participants
+        setChunkStep({ id, step: 'counting', progress: 0, total: 0 });
+        const participants = await pc!.readContract({
+          abi: managerAbi,
+          address: RAFFLE_MANAGER,
+          functionName: 'participantsOf',
+          args: [BigInt(id)],
+        }) as `0x${string}`[];
+
+        const totalBatches = Math.ceil(participants.length / CHUNK_BATCH_SIZE);
+
+        // Step 2: buildChunks in batches
+        for (let i = 0; i < totalBatches; i++) {
+          setChunkStep({ id, step: 'building', progress: i + 1, total: totalBatches });
+          const tx = await writeContractAsync({
+            abi: managerAbi,
+            address: RAFFLE_MANAGER,
+            functionName: 'buildChunks',
+            args: [BigInt(id), BigInt(CHUNK_BATCH_SIZE)],
+          });
+          await pc!.waitForTransactionReceipt({ hash: tx as Hex });
+        }
+
+        // Step 3: finalizeChunks
+        setChunkStep({ id, step: 'finalizing', progress: 0, total: 0 });
+        const finalizeTx = await writeContractAsync({
+          abi: managerAbi,
+          address: RAFFLE_MANAGER,
+          functionName: 'finalizeChunks',
+          args: [BigInt(id)],
+        });
+        await pc!.waitForTransactionReceipt({ hash: finalizeTx as Hex });
+      }
+
+      // Step 4: drawWinner
+      setChunkStep({ id, step: 'drawing', progress: 0, total: 0 });
+      const tx = await writeContractAsync({
+        abi: managerAbi,
+        address: RAFFLE_MANAGER,
+        functionName: 'drawWinner',
+        args: [BigInt(id)],
+      });
+      await pc!.waitForTransactionReceipt({ hash: tx as Hex });
+      await refetch();
+      alert(`Draw complete for round #${id}`);
+    } catch (e: any) {
+      alert(e?.shortMessage || e?.message || "Draw failed");
+    } finally {
+      setBusyId(null);
+      setChunkStep(null);
+    }
+  }
+
+  function getDrawLabel(id: number, totalTickets: number): string {
+    if (busyId !== id) return totalTickets > MAX_DIRECT_TICKETS ? 'Chunk & Draw' : 'Draw winner';
+    if (!chunkStep || chunkStep.id !== id) return 'Drawing…';
+    switch (chunkStep.step) {
+      case 'counting':   return 'Counting…';
+      case 'building':   return `Chunking ${chunkStep.progress}/${chunkStep.total}…`;
+      case 'finalizing': return 'Finalizing…';
+      case 'drawing':    return 'Drawing…';
     }
   }
 
@@ -69,6 +149,7 @@ export default function DrawPage() {
 
             const badge = TYPE_BADGE[r.raffleType] ?? TYPE_BADGE[0]
             const ticketPct = r.maxTickets > 0 ? (r.totalTickets / r.maxTickets) * 100 : 0
+            const needsChunking = r.totalTickets > MAX_DIRECT_TICKETS
 
             return (
               <div key={r.id} className="rounded-lg border bg-gray-50 p-4">
@@ -82,12 +163,17 @@ export default function DrawPage() {
                       <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${r.randRequested ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
                         {r.randRequested ? 'VRF ✓' : 'VRF pending'}
                       </span>
+                      {needsChunking && (
+                        <span className="text-xs rounded-full px-2 py-0.5 font-medium bg-orange-50 text-orange-700">
+                          Chunked draw
+                        </span>
+                      )}
                     </div>
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs text-gray-500">
-                          {r.totalTickets}/{r.maxTickets} tickets
+                          {r.totalTickets.toLocaleString()}/{r.maxTickets.toLocaleString()} tickets
                           {r.maxReached && <span className="ml-1 text-green-600 font-medium">· max reached</span>}
                         </span>
                         <span className="text-xs text-gray-400">{endsLabel}</span>
@@ -109,16 +195,16 @@ export default function DrawPage() {
                     <button
                       className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition-colors"
                       disabled={!r.canClose || busyId === r.id || status === "pending"}
-                      onClick={() => handleAction(r.id, "closeRaffle", "Closed & refunded", "Close failed")}
+                      onClick={() => handleClose(r.id)}
                     >
                       {busyId === r.id && !r.canDraw ? "Closing…" : "Close & refund"}
                     </button>
                     <button
                       className="inline-flex items-center justify-center rounded-lg bg-[#238D9D] text-white px-3.5 py-2 text-sm font-medium hover:bg-[#1a6d7a] disabled:opacity-40 transition-colors"
                       disabled={!r.canDraw || busyId === r.id || status === "pending"}
-                      onClick={() => handleAction(r.id, "drawWinner", "Draw complete for round", "Draw failed")}
+                      onClick={() => handleDraw(r.id, r.totalTickets)}
                     >
-                      {busyId === r.id && r.canDraw ? "Drawing…" : "Draw winner"}
+                      {getDrawLabel(r.id, r.totalTickets)}
                     </button>
                   </div>
                 </div>
