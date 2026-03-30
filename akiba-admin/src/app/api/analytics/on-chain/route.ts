@@ -17,6 +17,18 @@ const publicClient = createPublicClient({
   transport: http('https://forno.celo.org'),
 })
 
+const KILN_QUEST_ID = '9ca81915-8707-43c9-9472-9faed0c7cc58'
+
+const SAVINGS_TIER_AMOUNTS: Record<string, number> = {
+  'feb6e5ef-7d9c-4ca6-a042-e2b692a6b00f': 10,
+  'a1ac5914-20d4-4436-bf02-29563938fe9d': 30,
+  'b5c7e1d2-6f8a-4b0c-9d2e-3a1f7c5b8e4d': 100,
+}
+
+const QUEST_MIN_TRANSFER: Record<string, number> = {
+  '383eaa90-75aa-4592-a783-ad9126e8f04d': 1, // Transact
+}
+
 const QUEST_LABELS: Record<string, string> = {
   'feb6e5ef-7d9c-4ca6-a042-e2b692a6b00f': 'Save $10',
   'a1ac5914-20d4-4436-bf02-29563938fe9d': 'Save $30',
@@ -93,19 +105,29 @@ export async function GET(req: NextRequest) {
   const savings = SAVINGS_QUEST_IDS.map(id => ({
     questId: id,
     label: QUEST_LABELS[id] ?? id,
+    tierAmount:    SAVINGS_TIER_AMOUNTS[id] ?? 0,
     activeHolders: statsMap[id]?.active_streakers ?? 0,
     totalClaims:   statsMap[id]?.total_claims     ?? 0,
     uniqueWallets: statsMap[id]?.unique_wallets   ?? 0,
   }))
 
+  const kiln = {
+    questId:      KILN_QUEST_ID,
+    label:        QUEST_LABELS[KILN_QUEST_ID],
+    activeHolders: statsMap[KILN_QUEST_ID]?.active_streakers ?? 0,
+    totalClaims:   statsMap[KILN_QUEST_ID]?.total_claims     ?? 0,
+    uniqueWallets: statsMap[KILN_QUEST_ID]?.unique_wallets   ?? 0,
+  }
+
   const txQuestIds = ONCHAIN_QUEST_IDS.filter(
-    id => !(SAVINGS_QUEST_IDS as readonly string[]).includes(id),
+    id => !(SAVINGS_QUEST_IDS as readonly string[]).includes(id) && id !== KILN_QUEST_ID,
   )
   const txActivity = txQuestIds.map(id => ({
     questId: id,
     label: QUEST_LABELS[id] ?? id,
     totalClaims:   statsMap[id]?.total_claims   ?? 0,
     uniqueWallets: statsMap[id]?.unique_wallets ?? 0,
+    minTransfer:   QUEST_MIN_TRANSFER[id] ?? null,
   })).sort((a, b) => b.totalClaims - a.totalClaims)
 
   const totalBurned = (burnedRes.data ?? []).reduce((s, r) => s + (r.amount as number), 0)
@@ -134,6 +156,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     savings,
+    kiln,
     txActivity,
     summary: {
       totalQuestClaims,

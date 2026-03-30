@@ -16,6 +16,15 @@ import {
 interface SavingsTier {
   questId: string
   label: string
+  tierAmount: number
+  activeHolders: number
+  totalClaims: number
+  uniqueWallets: number
+}
+
+interface KilnData {
+  questId: string
+  label: string
   activeHolders: number
   totalClaims: number
   uniqueWallets: number
@@ -26,6 +35,7 @@ interface TxQuest {
   label: string
   totalClaims: number
   uniqueWallets: number
+  minTransfer: number | null
 }
 
 interface DiceTier {
@@ -36,8 +46,25 @@ interface DiceTier {
   totalPayout: number
 }
 
+interface TopHolder { address: string; balance: number }
+interface TopSaver  { address: string; balance: number; tiers: string[] }
+
+interface HoldingsStat {
+  questId: string
+  walletCount: number
+  totalHeld: number
+  avgHeld: number
+}
+
+interface HoldingsData {
+  savings:    HoldingsStat[]
+  topSavers:  TopSaver[]
+  kiln: { walletCount: number; totalHeld: number; avgHeld: number; topHolders: TopHolder[] }
+}
+
 interface OnChainData {
   savings: SavingsTier[]
+  kiln: KilnData
   txActivity: TxQuest[]
   summary: { totalQuestClaims: number; totalSavers: number; estimatedTotalTxns: number }
   passport: { totalBurned: number; refundCount: number; pendingQueue: number }
@@ -84,6 +111,16 @@ function fmtNum(n: number) {
   return n.toString()
 }
 
+function fmtUSD(n: number) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`
+  return `$${n.toFixed(2)}`
+}
+
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`
+}
+
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border bg-white p-5 space-y-4">
@@ -104,6 +141,10 @@ export default function OnChainPage() {
   const { data, loading } = useAnalyticsQuery<OnChainData>('/api/analytics/on-chain', {
     ...(from ? { from, to: today } : {}),
   })
+
+  const { data: holdings, loading: holdingsLoading } = useAnalyticsQuery<HoldingsData>(
+    '/api/analytics/on-chain/holdings', {},
+  )
 
   return (
     <div className="space-y-6">
@@ -170,29 +211,177 @@ export default function OnChainPage() {
 
       {/* Savings */}
       <Section title="Savings Behaviour" subtitle="Hold $10 / $30 / $100 on MiniPay — daily streak quests">
+        {/* Total actual TVL banner */}
+        {!holdingsLoading && holdings && (
+          <div className="flex items-center justify-between rounded-lg bg-violet-50 border border-violet-100 px-4 py-3">
+            <div>
+              <p className="text-xs text-violet-500 font-medium uppercase tracking-wide">Total Actual TVL</p>
+              <p className="text-2xl font-bold text-violet-700 mt-0.5">
+                {fmtUSD(holdings.savings.reduce((s, h) => s + h.totalHeld, 0))}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-violet-400">across all savings tiers</p>
+              <p className="text-xs text-violet-400 mt-0.5">
+                {(data?.savings ?? []).reduce((s, t) => s + t.activeHolders, 0).toLocaleString()} active holders
+              </p>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="h-24 animate-pulse bg-gray-100 rounded-lg" />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {(data?.savings ?? []).map(tier => (
-              <div key={tier.questId} className="rounded-lg border p-4 space-y-3">
-                <p className="font-semibold text-gray-800">{tier.label}</p>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Active holders</span>
-                    <span className="font-semibold text-emerald-600">{tier.activeHolders.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Total claims</span>
-                    <span className="font-medium text-gray-800">{tier.totalClaims.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Unique wallets</span>
-                    <span className="font-medium text-gray-800">{tier.uniqueWallets.toLocaleString()}</span>
+            {(data?.savings ?? []).map(tier => {
+              const h = holdings?.savings.find(s => s.questId === tier.questId)
+              const multiplier = h && tier.tierAmount > 0
+                ? (h.avgHeld / tier.tierAmount).toFixed(1)
+                : null
+              return (
+                <div key={tier.questId} className="rounded-lg border p-4 space-y-3">
+                  <p className="font-semibold text-gray-800">{tier.label}</p>
+                  <div className="space-y-1.5 text-sm">
+                    {/* Actual holdings — lead */}
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-gray-500">Actual held</span>
+                      <span className={`font-bold text-base ${holdingsLoading ? 'text-gray-300' : 'text-violet-600'}`}>
+                        {holdingsLoading ? '...' : h ? fmtUSD(h.totalHeld) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Avg per holder</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className={`font-medium ${holdingsLoading ? 'text-gray-300' : 'text-gray-800'}`}>
+                          {holdingsLoading ? '...' : h ? fmtUSD(h.avgHeld) : '—'}
+                        </span>
+                        {multiplier && (
+                          <span className="rounded-full bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            {multiplier}× min
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    {/* Quest stats — secondary */}
+                    <div className="border-t pt-1.5 mt-1 space-y-1.5 text-gray-500">
+                      <div className="flex justify-between">
+                        <span>Active holders</span>
+                        <span className="font-medium text-emerald-600">{tier.activeHolders.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Total claims</span>
+                        <span className="font-medium text-gray-700">{tier.totalClaims.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Min. TVL</span>
+                        <span className="font-medium text-gray-700">${(tier.activeHolders * tier.tierAmount).toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Unified top savers table */}
+        {!holdingsLoading && holdings?.topSavers && holdings.topSavers.length > 0 && (
+          <div className="overflow-x-auto rounded-xl border mt-2">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 border-b text-xs font-semibold text-gray-500">
+                <tr>
+                  <th className="px-4 py-2.5 text-left w-8">#</th>
+                  <th className="px-4 py-2.5 text-left">Wallet</th>
+                  <th className="px-4 py-2.5 text-left">Active tiers</th>
+                  <th className="px-4 py-2.5 text-right">Total held</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {holdings.topSavers.map((s, i) => (
+                  <tr key={s.address} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-4 py-2 text-gray-400 tabular-nums">{i + 1}</td>
+                    <td className="px-4 py-2">
+                      <a
+                        href={`https://celoscan.io/address/${s.address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-gray-600 hover:text-[#238D9D] transition-colors"
+                      >
+                        {shortAddr(s.address)}
+                      </a>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-1">
+                        {s.tiers.map(t => (
+                          <span key={t} className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right font-semibold text-violet-600 tabular-nums">
+                      {fmtUSD(s.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* Kiln Finance */}
+      <Section title="Kiln Finance" subtitle="Hold $10 in Kiln Finance — daily streak quest">
+        {loading ? (
+          <div className="h-24 animate-pulse bg-gray-100 rounded-lg" />
+        ) : (
+          <div className="rounded-lg border p-4 space-y-3 max-w-xs">
+            <p className="font-semibold text-gray-800">{data?.kiln.label ?? 'Hold $10 Kiln'}</p>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Unique claimers</span>
+                <span className="font-semibold text-emerald-600">{(data?.kiln.uniqueWallets ?? 0).toLocaleString()}</span>
               </div>
-            ))}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Total claims</span>
+                <span className="font-medium text-gray-800">{(data?.kiln.totalClaims ?? 0).toLocaleString()}</span>
+              </div>
+              <div className="border-t pt-1.5 mt-1.5 space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Actual total staked</span>
+                  <span className={`font-semibold ${holdingsLoading ? 'text-gray-300' : 'text-violet-600'}`}>
+                    {holdingsLoading ? '...' : holdings?.kiln ? fmtUSD(holdings.kiln.totalHeld) : '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Avg per holder</span>
+                  <span className={`font-medium ${holdingsLoading ? 'text-gray-300' : 'text-gray-800'}`}>
+                    {holdingsLoading ? '...' : holdings?.kiln ? fmtUSD(holdings.kiln.avgHeld) : '—'}
+                  </span>
+                </div>
+              </div>
+              {holdings?.kiln.topHolders && holdings.kiln.topHolders.length > 0 && (
+                <div className="border-t pt-2 mt-1">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Top holders</p>
+                  <div className="space-y-1">
+                    {holdings.kiln.topHolders.map((w, i) => (
+                      <div key={w.address} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400 w-4 shrink-0">{i + 1}.</span>
+                        <a
+                          href={`https://celoscan.io/address/${w.address}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-gray-500 hover:text-[#238D9D] transition-colors flex-1 px-1"
+                        >
+                          {shortAddr(w.address)}
+                        </a>
+                        <span className="font-semibold text-gray-700">{fmtUSD(w.balance)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Section>
@@ -204,40 +393,48 @@ export default function OnChainPage() {
         ) : !data?.txActivity.length ? (
           <EmptyChart />
         ) : (
-          <ResponsiveContainer width="100%" height={Math.max(200, data.txActivity.length * 44)}>
-            <BarChart
-              data={data.txActivity}
-              layout="vertical"
-              margin={{ top: 0, right: 60, left: 0, bottom: 0 }}
-              barCategoryGap="25%"
-            >
-              <CartesianGrid strokeDasharray="4 4" stroke="#f3f4f6" horizontal={false} />
-              <XAxis
-                type="number"
-                tickFormatter={fmtNum}
-                tick={{ fontSize: 11, fill: '#9ca3af' }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="label"
-                width={130}
-                tick={{ fontSize: 11, fill: '#374151' }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                {...tooltipStyle}
-                formatter={(v, name) => [
-                  Number(v).toLocaleString(),
-                  name === 'totalClaims' ? 'Total claims' : 'Unique wallets',
-                ]}
-              />
-              <Bar dataKey="totalClaims"  fill={AKIBA_TEAL}  fillOpacity={0.85} radius={[0, 4, 4, 0]} maxBarSize={24} name="totalClaims" />
-              <Bar dataKey="uniqueWallets" fill="#7c3aed" fillOpacity={0.6}  radius={[0, 4, 4, 0]} maxBarSize={24} name="uniqueWallets" />
-            </BarChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={Math.max(200, data.txActivity.length * 44)}>
+              <BarChart
+                data={data.txActivity}
+                layout="vertical"
+                margin={{ top: 0, right: 60, left: 0, bottom: 0 }}
+                barCategoryGap="25%"
+              >
+                <CartesianGrid strokeDasharray="4 4" stroke="#f3f4f6" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tickFormatter={fmtNum}
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={130}
+                  tick={{ fontSize: 11, fill: '#374151' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  {...tooltipStyle}
+                  formatter={(v, name) => [
+                    Number(v).toLocaleString(),
+                    name === 'totalClaims' ? 'Total claims' : 'Unique wallets',
+                  ]}
+                />
+                <Bar dataKey="totalClaims"  fill={AKIBA_TEAL}  fillOpacity={0.85} radius={[0, 4, 4, 0]} maxBarSize={24} name="totalClaims" />
+                <Bar dataKey="uniqueWallets" fill="#7c3aed" fillOpacity={0.6}  radius={[0, 4, 4, 0]} maxBarSize={24} name="uniqueWallets" />
+              </BarChart>
+            </ResponsiveContainer>
+            {data.txActivity.filter(q => q.minTransfer).map(q => (
+              <div key={q.questId} className="flex items-center justify-between rounded-lg bg-teal-50 border border-teal-100 px-4 py-2.5 text-sm">
+                <span className="text-teal-700 font-medium">{q.label} — Est. min. transferred</span>
+                <span className="font-bold text-teal-800">${(q.uniqueWallets * q.minTransfer!).toLocaleString()}</span>
+              </div>
+            ))}
+          </>
         )}
       </Section>
 
