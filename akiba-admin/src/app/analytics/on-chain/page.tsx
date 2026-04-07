@@ -35,7 +35,8 @@ interface TxQuest {
   label: string
   totalClaims: number
   uniqueWallets: number
-  minTransfer: number | null
+  minTransferPerClaim: number | null
+  estimatedMinTransferred: number
 }
 
 interface DiceTier {
@@ -47,7 +48,15 @@ interface DiceTier {
 }
 
 interface TopHolder { address: string; balance: number }
-interface TopSaver  { address: string; balance: number; tiers: string[] }
+interface TopSaver {
+  address: string
+  balance: number
+  tiers: string[]
+  milestone50: boolean
+  milestone100: boolean
+  uniqueClaimDays: number
+  totalClaims: number
+}
 
 interface HoldingsStat {
   questId: string
@@ -141,6 +150,10 @@ export default function OnChainPage() {
   const { data, loading } = useAnalyticsQuery<OnChainData>('/api/analytics/on-chain', {
     ...(from ? { from, to: today } : {}),
   })
+  const totalEstimatedMinTransferred = (data?.txActivity ?? []).reduce(
+    (sum, quest) => sum + (quest.estimatedMinTransferred ?? 0),
+    0,
+  )
 
   const { data: holdings, loading: holdingsLoading } = useAnalyticsQuery<HoldingsData>(
     '/api/analytics/on-chain/holdings', {},
@@ -292,7 +305,9 @@ export default function OnChainPage() {
                 <tr>
                   <th className="px-4 py-2.5 text-left w-8">#</th>
                   <th className="px-4 py-2.5 text-left">Wallet</th>
-                  <th className="px-4 py-2.5 text-left">Active tiers</th>
+                  <th className="px-4 py-2.5 text-left">Tiers</th>
+                  <th className="px-4 py-2.5 text-right">Claim days</th>
+                  <th className="px-4 py-2.5 text-right">Total claims</th>
                   <th className="px-4 py-2.5 text-right">Total held</th>
                 </tr>
               </thead>
@@ -301,14 +316,22 @@ export default function OnChainPage() {
                   <tr key={s.address} className="hover:bg-gray-50/60 transition-colors">
                     <td className="px-4 py-2 text-gray-400 tabular-nums">{i + 1}</td>
                     <td className="px-4 py-2">
-                      <a
-                        href={`https://celoscan.io/address/${s.address}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-gray-600 hover:text-[#238D9D] transition-colors"
-                      >
-                        {shortAddr(s.address)}
-                      </a>
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href={`https://celoscan.io/address/${s.address}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-gray-600 hover:text-[#238D9D] transition-colors"
+                        >
+                          {shortAddr(s.address)}
+                        </a>
+                        {s.milestone100 && (
+                          <span className="rounded-full bg-amber-50 border border-amber-300 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">100</span>
+                        )}
+                        {s.milestone50 && !s.milestone100 && (
+                          <span className="rounded-full bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[10px] font-bold text-amber-600">50</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex gap-1">
@@ -319,6 +342,8 @@ export default function OnChainPage() {
                         ))}
                       </div>
                     </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-700">{s.uniqueClaimDays.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-gray-500">{s.totalClaims.toLocaleString()}</td>
                     <td className="px-4 py-2 text-right font-semibold text-violet-600 tabular-nums">
                       {fmtUSD(s.balance)}
                     </td>
@@ -428,12 +453,10 @@ export default function OnChainPage() {
                 <Bar dataKey="uniqueWallets" fill="#7c3aed" fillOpacity={0.6}  radius={[0, 4, 4, 0]} maxBarSize={24} name="uniqueWallets" />
               </BarChart>
             </ResponsiveContainer>
-            {data.txActivity.filter(q => q.minTransfer).map(q => (
-              <div key={q.questId} className="flex items-center justify-between rounded-lg bg-teal-50 border border-teal-100 px-4 py-2.5 text-sm">
-                <span className="text-teal-700 font-medium">{q.label} — Est. min. transferred</span>
-                <span className="font-bold text-teal-800">${(q.uniqueWallets * q.minTransfer!).toLocaleString()}</span>
-              </div>
-            ))}
+            <div className="flex items-center justify-between rounded-lg bg-teal-50 border border-teal-100 px-4 py-2.5 text-sm">
+              <span className="text-teal-700 font-medium">Total est. min. transferred</span>
+              <span className="font-bold text-teal-800">${totalEstimatedMinTransferred.toLocaleString()}</span>
+            </div>
           </>
         )}
       </Section>
@@ -609,13 +632,6 @@ export default function OnChainPage() {
             Open in Dune <ExternalLink size={12} />
           </a>
         </div>
-        <iframe
-          src="https://dune.com/embeds/superchain_eco/akiba-miles"
-          className="w-full border-0 block"
-          style={{ height: '80vh', minHeight: 600 }}
-          title="Akiba Miles Dune Dashboard"
-          allowFullScreen
-        />
       </div>
     </div>
   )

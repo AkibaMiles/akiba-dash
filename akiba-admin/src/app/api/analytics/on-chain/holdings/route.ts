@@ -130,10 +130,48 @@ export async function GET() {
   }
 
   // Top 20 savers across all tiers
-  const topSavers = Array.from(walletBalance.entries())
+  const topSaversBase = Array.from(walletBalance.entries())
     .map(([address, balance]) => ({ address, balance, tiers: walletTiers.get(address) ?? [] }))
     .sort((a, b) => b.balance - a.balance)
     .slice(0, 20)
+
+  // Enrich with profile milestones + claim stats
+  const topAddresses = topSaversBase.map(s => s.address)
+  const [profileRes, engagementRes] = await Promise.all([
+    supabase
+      .from('users')
+      .select('user_address, profile_milestone_50_claimed, profile_milestone_100_claimed')
+      .in('user_address', topAddresses),
+    supabase
+      .from('daily_engagements')
+      .select('user_address, claimed_at')
+      .in('user_address', topAddresses),
+  ])
+
+  const profileMap = new Map(
+    (profileRes.data ?? []).map(r => [r.user_address as string, {
+      milestone50:  Boolean(r.profile_milestone_50_claimed),
+      milestone100: Boolean(r.profile_milestone_100_claimed),
+    }]),
+  )
+
+  const uniqueDaysMap = new Map<string, Set<string>>()
+  const totalClaimsMap = new Map<string, number>()
+  for (const r of engagementRes.data ?? []) {
+    const addr = r.user_address as string
+    const day  = (r.claimed_at as string)?.split('T')[0]
+    if (!uniqueDaysMap.has(addr)) uniqueDaysMap.set(addr, new Set())
+    if (day) uniqueDaysMap.get(addr)!.add(day)
+    totalClaimsMap.set(addr, (totalClaimsMap.get(addr) ?? 0) + 1)
+  }
+
+  const topSavers = topSaversBase.map(s => ({
+    ...s,
+    milestone50:     profileMap.get(s.address)?.milestone50  ?? false,
+    milestone100:    profileMap.get(s.address)?.milestone100 ?? false,
+    uniqueClaimDays: uniqueDaysMap.get(s.address)?.size ?? 0,
+    totalClaims:     totalClaimsMap.get(s.address) ?? 0,
+  }))
 
   // Kiln: balanceOf on share token (uses all-time claimers, not streak-based)
   // kilnWallets already fetched from daily_engagements above

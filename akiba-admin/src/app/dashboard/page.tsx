@@ -10,8 +10,9 @@ import { Button } from "@/components/ui/button";
 import Card from "@/components/Card";
 import managerAbi from "@/lib/abi/AkibaV3.json";
 import { RAFFLE_MANAGER, readPrizeNFT } from "@/lib/raffle-contract";
+import { AKIBA_MINIPOINTS } from "@/lib/constants";
 
-const MILES = "0xEeD878017f027FE96316007D0ca5fDA58Ee93a6b" as const;
+const MILES = AKIBA_MINIPOINTS as `0x${string}`;
 
 // Known reward tokens (for cash/miles raffles)
 const TOKENS = [

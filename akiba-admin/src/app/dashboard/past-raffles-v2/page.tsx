@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { gqlFetch } from '@/lib/subgraph';
+import { AKIBA_MINIPOINTS } from '@/lib/constants';
 
 type RC = {
   id: string; roundId: string; startTime?: string; endTime?: string;
@@ -28,7 +29,7 @@ const QUERY = /* GraphQL */ `
 const TOKENS = {
   usdt: '0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e',
   cusd: '0x765de816845861e75a25fca122bb6898b8b1282a',
-  miles: '0xeed878017f027fe96316007d0ca5fda58ee93a6b',
+  miles: AKIBA_MINIPOINTS.toLowerCase(),
 } as const;
 
 const SYMBOLS: Record<string, string> = {

@@ -25,8 +25,14 @@ const SAVINGS_TIER_AMOUNTS: Record<string, number> = {
   'b5c7e1d2-6f8a-4b0c-9d2e-3a1f7c5b8e4d': 100,
 }
 
-const QUEST_MIN_TRANSFER: Record<string, number> = {
-  '383eaa90-75aa-4592-a783-ad9126e8f04d': 1, // Transact
+const QUEST_MIN_TRANSFER_PER_CLAIM: Record<string, number> = {
+  '383eaa90-75aa-4592-a783-ad9126e8f04d': 1,  // Transact
+  'f6d027d2-bf52-4768-a87f-2be00a5b03a0': 5,  // Make 5 Txns
+  'ea001296-2405-451b-a590-941af22a8df1': 10, // 10 Transactions
+  '60320fa4-1681-4795-8818-429f11afe784': 20, // 20 Transactions
+  'c6b14ae1-66e9-4777-9c9f-65e57b091b16': 1,  // Topup MiniPay
+  '96009afb-0762-4399-adb3-ced421d73072': 7,  // Weekly Top-Up
+  '6ddc811a-1a4d-4e57-871d-836f07486531': 7,  // 7 Day Streak
 }
 
 const QUEST_LABELS: Record<string, string> = {
@@ -127,7 +133,9 @@ export async function GET(req: NextRequest) {
     label: QUEST_LABELS[id] ?? id,
     totalClaims:   statsMap[id]?.total_claims   ?? 0,
     uniqueWallets: statsMap[id]?.unique_wallets ?? 0,
-    minTransfer:   QUEST_MIN_TRANSFER[id] ?? null,
+    minTransferPerClaim: QUEST_MIN_TRANSFER_PER_CLAIM[id] ?? null,
+    estimatedMinTransferred:
+      (statsMap[id]?.total_claims ?? 0) * (QUEST_MIN_TRANSFER_PER_CLAIM[id] ?? 0),
   })).sort((a, b) => b.totalClaims - a.totalClaims)
 
   const totalBurned = (burnedRes.data ?? []).reduce((s, r) => s + (r.amount as number), 0)

@@ -5,6 +5,10 @@ export const QUEST_IDS = {
   DAILY_CHECKIN:      'a9c68150-7db8-4555-b87f-5e9117b43a08',
 } as const
 
+export const AKIBA_MINIPOINTS =
+  process.env.NEXT_PUBLIC_AKIBA_MINIPOINTS ||
+  '0xab93400000751fc17918940C202A66066885d628'
+
 /** All quests that require on-chain verification (excludes check-in & referral) */
 export const ONCHAIN_QUEST_IDS = [
   'feb6e5ef-7d9c-4ca6-a042-e2b692a6b00f', // Save $10
