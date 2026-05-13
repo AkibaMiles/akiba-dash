@@ -50,7 +50,7 @@ export default function PastRafflesPage() {
   return (
     <div className="rounded-xl border bg-white overflow-hidden">
       <div className="px-5 py-4 border-b">
-        <p className="font-semibold text-gray-900">Previous Raffles (v3)</p>
+        <p className="font-semibold text-gray-900">Previous Raffles</p>
         <p className="text-xs text-gray-400 mt-0.5">Completed raffle rounds from the API</p>
       </div>
 

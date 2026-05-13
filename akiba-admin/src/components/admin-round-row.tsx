@@ -5,7 +5,7 @@ import { DrawableRound as CombinedRound } from "@/hooks/useDrawableRounds";
 import { Button } from "@/components/ui/button";
 
 const typeLabel = (t: number) =>
-  t === 0 ? "Single" : t === 1 ? "Top-3" : t === 2 ? "Top-5" : t === 3 ? "Physical" : `Type ${t}`;
+  t === 0 ? "Single" : t === 1 ? "Top-3" : t === 2 ? "Top-5" : t === 3 ? "Physical" : t === 4 ? "Top-10" : `Type ${t}`;
 
 type Props = {
   round: CombinedRound;

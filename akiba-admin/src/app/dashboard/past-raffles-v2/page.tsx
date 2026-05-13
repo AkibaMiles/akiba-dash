@@ -60,9 +60,9 @@ function fmtAmountWithSymbol(raw?: string, token?: string | null) {
   return `${formatUnits(raw, DECIMALS[key] ?? 18)} ${SYMBOLS[key] || shortAddr(key)}`;
 }
 
-const typeLabel = (t?: number | null) => t === 3 ? 'Physical' : t === 2 ? 'Top-5' : t === 1 ? 'Top-3' : 'Single';
+const typeLabel = (t?: number | null) => t === 4 ? 'Top-10' : t === 3 ? 'Physical' : t === 2 ? 'Top-5' : t === 1 ? 'Top-3' : 'Single';
 const typeBadgeColor = (t?: number | null) =>
-  t === 3 ? 'bg-amber-50 text-amber-700' : t === 2 ? 'bg-purple-50 text-purple-700' :
+  t === 4 ? 'bg-emerald-50 text-emerald-700' : t === 3 ? 'bg-amber-50 text-amber-700' : t === 2 ? 'bg-purple-50 text-purple-700' :
   t === 1 ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-700';
 
 const fmtDur = (s?: string, e?: string) => {

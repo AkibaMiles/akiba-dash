@@ -1,8 +1,11 @@
 // lib/raffle-contract.ts
 import { createPublicClient, http, type Abi, type Address } from "viem";
 import { celo } from "viem/chains";
-// ⬇️ V3 ABI (update the path to your actual file)
-import raffleAbi from "@/lib/abi/AkibaV3.json";
+// V7-compatible ABI.
+import raffleAbi from "@/lib/abi/AkibaRaffleV7.json";
+
+export const RAFFLE_DRAW_THRESHOLD_PERCENT = 5;
+export const RAFFLE_MAX_DIRECT_TICKETS = 25_000;
 
 export const RAFFLE_MANAGER =
   (process.env.NEXT_PUBLIC_RAFFLE_MANAGER as Address) ||
@@ -23,12 +26,12 @@ export async function getRoundCount() {
 }
 
 /**
- * Fetch ACTIVE rounds only (V3 has no `getRound`/public getter for ended rounds).
+ * Fetch ACTIVE rounds only (the raffle contract has no public getter for ended rounds).
  * For ended rounds + metadata (raffleType, winners[], amounts, etc.),
  * use the subgraph.
  *
- * V3 getActiveRound returns:
- * [roundId, start, end, maxTickets, totalTickets, rewardToken, rewardPool, ticketCostPoints, winnerSelected]
+ * V7 getActiveRound returns:
+ * [roundId, start, end, maxTickets, totalTickets, rewardToken, rewardPool, ticketCostPoints, winnerSelected, raffleType]
  */
 export async function fetchActiveRounds(ids: bigint[]) {
   const calls = ids.map((id) => ({
@@ -57,6 +60,7 @@ export async function fetchActiveRounds(ids: bigint[]) {
       rewardPool,
       _ticketCostPoints,
       winnersSel,
+      _raffleType,
     ] = r.result as any[];
 
     out.push({
@@ -87,6 +91,25 @@ export async function readPrizeNFT(): Promise<`0x${string}`> {
   return addr as `0x${string}`;
 }
 
+export async function readRaffleOwner(): Promise<`0x${string}`> {
+  const addr = await publicClient.readContract({
+    address: RAFFLE_MANAGER,
+    abi: raffleAbi as Abi,
+    functionName: "owner",
+  });
+  return addr as `0x${string}`;
+}
+
+export async function readIsRaffleMinter(user: `0x${string}`): Promise<boolean> {
+  const enabled = await publicClient.readContract({
+    address: RAFFLE_MANAGER,
+    abi: raffleAbi as Abi,
+    functionName: "minters",
+    args: [user],
+  });
+  return Boolean(enabled);
+}
+
 /** Optional helper for results pages */
 export async function getWinners(roundId: bigint): Promise<`0x${string}`[]> {
   const winners = await publicClient.readContract({
@@ -105,7 +128,7 @@ export type AdminRound = {
   maxTickets: number;
   totalTickets: number;
   winnersSelected: boolean;
-  // V3: address(0) for Physical prize rounds
+  // address(0) for Physical prize rounds
   rewardToken: Address | null;
   rewardPool: bigint; // raw units
 };

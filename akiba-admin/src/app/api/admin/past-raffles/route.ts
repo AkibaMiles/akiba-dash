@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { createPublicClient, http, type Abi, erc20Abi, Address, formatUnits } from 'viem';
 import { celo } from 'viem/chains';
-import managerAbi from '@/lib/abi/RaffleManager.json'; // for direct fallback calls
+import managerAbi from '@/lib/abi/AkibaRaffleV7.json'; // for direct fallback calls
 
 const SUBGRAPH_URL = 'https://api.studio.thegraph.com/query/115307/akiba-v-2/version/latest';
 
@@ -179,7 +179,7 @@ export async function GET() {
     //    If your contract doesn't have getRound, this step just skips silently.
     const activeCalls = idsBig.map((id) => ({
       address: past[0]?.rewardToken ? (past[0].rewardToken as Address) : ('0x0000000000000000000000000000000000000000' as Address), // placeholder, replaced below
-      abi: managerAbi.abi as Abi,
+      abi: managerAbi as Abi,
       functionName: 'getActiveRound' as const,
       args: [id],
     }));
@@ -189,7 +189,7 @@ export async function GET() {
 
     const roundCalls = idsBig.map((id) => ({
       address: activeCalls[0].address,
-      abi: managerAbi.abi as Abi,
+      abi: managerAbi as Abi,
       functionName: 'getRound' as const,
       args: [id],
     }));

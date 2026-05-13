@@ -363,9 +363,9 @@
                 "type": "uint256"
             },
             {
-                "internalType": "uint256",
+                "internalType": "uint32",
                 "name": "_batchSize",
-                "type": "uint256"
+                "type": "uint32"
             }
         ],
         "name": "buildChunks",
@@ -384,6 +384,42 @@
         "name": "finalizeChunks",
         "outputs": [],
         "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "uint256",
+                "name": "roundId",
+                "type": "uint256"
+            }
+        ],
+        "name": "getChunks",
+        "outputs": [
+            {
+                "components": [
+                    {
+                        "internalType": "uint32",
+                        "name": "first",
+                        "type": "uint32"
+                    },
+                    {
+                        "internalType": "uint32",
+                        "name": "last",
+                        "type": "uint32"
+                    },
+                    {
+                        "internalType": "uint32",
+                        "name": "ticketsInChunk",
+                        "type": "uint32"
+                    }
+                ],
+                "internalType": "struct AkibaRaffleV7.RoundChunk[]",
+                "name": "",
+                "type": "tuple[]"
+            }
+        ],
+        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -453,6 +489,11 @@
                 "internalType": "bool",
                 "name": "winnerSelected",
                 "type": "bool"
+            },
+            {
+                "internalType": "uint8",
+                "name": "raffleType",
+                "type": "uint8"
             }
         ],
         "stateMutability": "view",

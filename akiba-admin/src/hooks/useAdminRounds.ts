@@ -17,7 +17,7 @@ type RC = {
   endTime: string;
   maxTickets: string;
   ticketCostPoints?: string | null;
-  roundType?: number | null; // v3 emits roundType
+  roundType?: number | null; // RoundCreated emits roundType
 };
 
 type WS  = { roundId: string };
@@ -45,7 +45,7 @@ export type CombinedRound = {
   totalTickets: number;
   maxReached: boolean;
   drawn: boolean;
-  raffleType: number;        // 0=single, 1=top-3, 2=top-5, 3=physical
+  raffleType: number;        // 0=single, 1=top-3, 2=top-5, 3=physical, 4=top-10
   participantEvents: number; // count of join events seen
 };
 
@@ -180,7 +180,7 @@ async function fetchAllJoinsForRounds(roundIds: string[]) {
 
 export function useAdminRounds() {
   return useQuery({
-    queryKey: ["admin-rounds-v3-events"],
+    queryKey: ["admin-rounds-v7-events"],
     queryFn: async (): Promise<CombinedRound[]> => {
       const base = await gqlFetch<AdminRoundsBase>(BASE_QUERY);
       const now = Math.floor(Date.now() / 1000);

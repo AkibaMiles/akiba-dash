@@ -6,9 +6,8 @@ import { useWriteContract } from 'wagmi'
 import { Input }  from '@/components/ui/input'
 import { Label }  from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import managerAbiArtifact from '@/lib/abi/RaffleManager.json'
-
-const RAFFLE_MANAGER = '0xD75dfa972C6136f1c594Fec1945302f885E1ab29'
+import managerAbi from '@/lib/abi/AkibaRaffleV7.json'
+import { RAFFLE_MANAGER } from '@/lib/raffle-contract'
 
 export default function RequestRandom() {
   const { writeContractAsync, status } = useWriteContract()
@@ -21,7 +20,7 @@ export default function RequestRandom() {
     try {
       await writeContractAsync({
         address: RAFFLE_MANAGER,
-        abi: managerAbiArtifact.abi,
+        abi: managerAbi,
         functionName: 'requestRoundRandomness',
         args: [BigInt(roundId)],
         value: parseEther(fee),

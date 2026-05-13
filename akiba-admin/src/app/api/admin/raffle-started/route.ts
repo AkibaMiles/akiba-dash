@@ -13,11 +13,13 @@ function raffleTypeLabel(t: number): string {
     case 0:
       return "Single winner";
     case 1:
-      return "Top 3 (50/30/20)";
+      return "Top 3 (equal split)";
     case 2:
-      return "Top 5 (50/25/15/10/10)";
+      return "Top 5 (equal split)";
     case 3:
       return "Physical prize (NFT voucher)";
+    case 4:
+      return "Top 10 (equal split)";
     default:
       return "Unknown type";
   }

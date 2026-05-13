@@ -3,13 +3,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { parseUnits, decodeEventLog, erc20Abi, type Hex } from "viem";
-import { usePublicClient, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Card from "@/components/Card";
-import managerAbi from "@/lib/abi/AkibaV3.json";
-import { RAFFLE_MANAGER, readPrizeNFT } from "@/lib/raffle-contract";
+import managerAbi from "@/lib/abi/AkibaRaffleV7.json";
+import {
+  RAFFLE_MANAGER,
+  readIsRaffleMinter,
+  readPrizeNFT,
+  readRaffleOwner,
+} from "@/lib/raffle-contract";
 import { AKIBA_MINIPOINTS } from "@/lib/constants";
 
 const MILES = AKIBA_MINIPOINTS as `0x${string}`;
@@ -25,7 +30,15 @@ type Token = (typeof TOKENS)[number];
 // Fixed VRF fee in CELO
 const FIXED_FEE_CELO = "0.011";
 
-type RaffleType = 0 | 1 | 2 | 3; // 0 single, 1 top3, 2 top5, 3 physical
+type RaffleType = 0 | 1 | 2 | 3 | 4; // 0 single, 1 top3, 2 top5, 3 physical, 4 top10
+
+const RAFFLE_WINNER_COUNTS: Record<RaffleType, number> = {
+  0: 1,
+  1: 3,
+  2: 5,
+  3: 1,
+  4: 10,
+};
 
 // 🔔 Fire-and-forget call to our Telegram announce API
 async function notifyTelegramRoundCreated(payload: any) {
@@ -44,8 +57,9 @@ async function notifyTelegramRoundCreated(payload: any) {
   }
 }
 
-export default function CreateRaffleV3() {
+export default function CreateRaffleV7() {
   const pc = usePublicClient();
+  const { address } = useAccount();
   const { writeContractAsync, status } = useWriteContract();
   const isPending = status === "pending";
 
@@ -60,10 +74,11 @@ export default function CreateRaffleV3() {
   const [rewardURI,   setRewardURI]   = useState("");
   const [prizeNft,    setPrizeNft]    = useState<`0x${string}` | null>(null);
   const [cardTitle, setCardTitle] = useState("");
-const [description, setDescription] = useState("");
-const [cardImageUrl, setCardImageUrl] = useState("");
-const [prizeTitle, setPrizeTitle] = useState("");
-const [winners, setWinners] = useState("1");
+  const [description, setDescription] = useState("");
+  const [cardImageUrl, setCardImageUrl] = useState("");
+  const [prizeTitle, setPrizeTitle] = useState("");
+  const [owner, setOwner] = useState<`0x${string}` | null>(null);
+  const [isMinter, setIsMinter] = useState<boolean | null>(null);
 
   // randomness
   const [autoRequest, setAutoRequest] = useState(true);
@@ -73,7 +88,36 @@ const [winners, setWinners] = useState("1");
     readPrizeNFT().then(setPrizeNft).catch(() => setPrizeNft(null));
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAdminStatus() {
+      try {
+        const [ownerAddr, minterEnabled] = await Promise.all([
+          readRaffleOwner(),
+          address ? readIsRaffleMinter(address) : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        setOwner(ownerAddr);
+        setIsMinter(minterEnabled);
+      } catch {
+        if (cancelled) return;
+        setOwner(null);
+        setIsMinter(null);
+      }
+    }
+
+    void loadAdminStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
+
   const isPhysical = raffleType === 3;
+  const winnerCount = RAFFLE_WINNER_COUNTS[raffleType];
+  const isOwner =
+    !!address && !!owner && address.toLowerCase() === owner.toLowerCase();
+  const canCreate = isOwner || isMinter === true;
   const displayToken =
     isPhysical && prizeNft
       ? { symbol: "PrizeNFT", address: prizeNft, decimals: 0 }
@@ -120,7 +164,7 @@ const [winners, setWinners] = useState("1");
         });
       }
 
-      // 2) create round (V3 signature)
+      // 2) create round (V7 signature)
       const txHash = await writeContractAsync({
         abi: managerAbi,
         address: RAFFLE_MANAGER,
@@ -197,6 +241,7 @@ const [winners, setWinners] = useState("1");
       if (roundId) {
         const metaPayload = {
           roundId: Number(roundId),
+          raffleType,
           kind: isPhysical ? "physical" : "token",
           cardTitle: cardTitle || null,
           description: description || null,
@@ -206,7 +251,7 @@ const [winners, setWinners] = useState("1");
             (isPhysical
               ? "Physical prize"
               : `${reward || "0"} ${displayToken.symbol}`),
-          winners: winners ? Number(winners) : (raffleType === 2 ? 5 : raffleType === 1 ? 3 : 1),
+          winners: winnerCount,
         };
       
         try {
@@ -234,11 +279,11 @@ const [winners, setWinners] = useState("1");
     }
   }
 
-  const submitDisabled = isPending || !rewardValid;
+  const submitDisabled = isPending || !rewardValid || (!!address && isMinter !== null && !canCreate);
 
   return (
     <div className="max-w-2xl">
-      <Card title="Create Raffle (V3)">
+      <Card title="Create Raffle (V7)">
         <form
           className="space-y-6"
           onSubmit={(e) => {
@@ -253,12 +298,15 @@ const [winners, setWinners] = useState("1");
               id="rtype"
               className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
               value={raffleType}
-              onChange={(e) => setRaffleType(Number(e.target.value) as RaffleType)}
+              onChange={(e) => {
+                setRaffleType(Number(e.target.value) as RaffleType);
+              }}
             >
               <option value={0}>Single winner</option>
-              <option value={1}>Top 3 (50/30/20)</option>
-              <option value={2}>Top 5 (50/25/15/10/10)</option>
+              <option value={1}>Top 3 (equal split)</option>
+              <option value={2}>Top 5 (equal split)</option>
               <option value={3}>Physical prize (NFT voucher)</option>
+              <option value={4}>Top 10 (equal split)</option>
             </select>
           </div>
 
@@ -359,70 +407,89 @@ const [winners, setWinners] = useState("1");
           </div>
 
           {/* UI metadata (off-chain) */}
-<div className="border-t pt-4 space-y-4">
-  <h3 className="font-medium text-sm">Display / UI settings</h3>
+          <div className="border-t pt-4 space-y-4">
+            <div>
+              <h3 className="font-medium text-sm">Contract status</h3>
+              <div className="mt-2 rounded-md border bg-gray-50 p-3 text-xs text-gray-600 space-y-1">
+                <p>
+                  Manager:{" "}
+                  <span className="font-mono text-gray-800 break-all">{RAFFLE_MANAGER}</span>
+                </p>
+                <p>
+                  Owner:{" "}
+                  <span className="font-mono text-gray-800 break-all">{owner ?? "Unable to load"}</span>
+                </p>
+                <p>
+                  Prize NFT:{" "}
+                  <span className="font-mono text-gray-800 break-all">{prizeNft ?? "Unable to load"}</span>
+                </p>
+                <p>
+                  Connected role:{" "}
+                  <span className={canCreate ? "text-green-700 font-medium" : "text-amber-700 font-medium"}>
+                    {!address ? "Wallet not connected" : canCreate ? (isOwner ? "Owner" : "Minter") : "Not owner/minter"}
+                  </span>
+                </p>
+              </div>
+            </div>
 
-  <div>
-    <Label htmlFor="cardTitle">Card title</Label>
-    <Input
-      id="cardTitle"
-      placeholder={isPhysical ? "e.g. JBL Tune 700BT Headphones" : "e.g. 500 USDT Weekly Jackpot"}
-      value={cardTitle}
-      onChange={(e) => setCardTitle(e.target.value)}
-    />
-    <p className="mt-1 text-xs text-gray-500">
-      Shown on the raffle card. If empty, frontend falls back to {`rewardPool token`}.
-    </p>
-  </div>
+            <h3 className="font-medium text-sm">Display / UI settings</h3>
 
-  <div>
-    <Label htmlFor="desc">Description / blurb</Label>
-    <Input
-      id="desc"
-      placeholder="Short description for the sheet"
-      value={description}
-      onChange={(e) => setDescription(e.target.value)}
-    />
-  </div>
+            <div>
+              <Label htmlFor="cardTitle">Card title</Label>
+              <Input
+                id="cardTitle"
+                placeholder={isPhysical ? "e.g. JBL Tune 700BT Headphones" : "e.g. 500 USDT Weekly Jackpot"}
+                value={cardTitle}
+                onChange={(e) => setCardTitle(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Shown on the raffle card. If empty, frontend falls back to {`rewardPool token`}.
+              </p>
+            </div>
 
-  <div>
-    <Label htmlFor="img">Card image URL</Label>
-    <Input
-      id="img"
-      placeholder="https://... (Supabase bucket URL)"
-      value={cardImageUrl}
-      onChange={(e) => setCardImageUrl(e.target.value)}
-    />
-    <p className="mt-1 text-xs text-gray-500">
-      Upload the image to Supabase and paste the public URL here.
-    </p>
-  </div>
+            <div>
+              <Label htmlFor="desc">Description / blurb</Label>
+              <Input
+                id="desc"
+                placeholder="Short description for the sheet"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
 
-  <div>
-    <Label htmlFor="prizeTitle">Prize title (optional)</Label>
-    <Input
-      id="prizeTitle"
-      placeholder={isPhysical ? "JBL Tune 700BT Wireless Over-Ear..." : "Optional override"}
-      value={prizeTitle}
-      onChange={(e) => setPrizeTitle(e.target.value)}
-    />
-  </div>
+            <div>
+              <Label htmlFor="img">Card image URL</Label>
+              <Input
+                id="img"
+                placeholder="https://... (Supabase bucket URL)"
+                value={cardImageUrl}
+                onChange={(e) => setCardImageUrl(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Upload the image to Supabase and paste the public URL here.
+              </p>
+            </div>
 
-  <div>
-    <Label htmlFor="winners">Number of winners</Label>
-    <Input
-      id="winners"
-      type="number"
-      min={1}
-      placeholder="1"
-      value={winners}
-      onChange={(e) => setWinners(e.target.value)}
-    />
-    <p className="mt-1 text-xs text-gray-500">
-      e.g. 1 for single winner, 3 for Top-3, 5 for Top-5.
-    </p>
-  </div>
-</div>
+            <div>
+              <Label htmlFor="prizeTitle">Prize title (optional)</Label>
+              <Input
+                id="prizeTitle"
+                placeholder={isPhysical ? "JBL Tune 700BT Wireless Over-Ear..." : "Optional override"}
+                value={prizeTitle}
+                onChange={(e) => setPrizeTitle(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label>Number of winners</Label>
+              <div className="mt-1 rounded-md border bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                {winnerCount}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Derived from the selected raffle type so off-chain metadata matches the contract.
+              </p>
+            </div>
+          </div>
 
 
           {/* randomness toggle */}

@@ -7,11 +7,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY! // service role (protected on server)
 );
 
+const WINNERS_BY_RAFFLE_TYPE: Record<number, number> = {
+  0: 1,
+  1: 3,
+  2: 5,
+  3: 1,
+  4: 10,
+};
+
 export async function POST(req: Request) {
   const body = await req.json();
 
   const {
     roundId,
+    raffleType,
     kind,
     cardTitle,
     description,
@@ -37,7 +46,7 @@ export async function POST(req: Request) {
         description,
         card_image_url: cardImageUrl,
         prize_title: prizeTitle,
-        winners,
+        winners: WINNERS_BY_RAFFLE_TYPE[Number(raffleType)] ?? winners,
       },
       { onConflict: "round_id" }
     );

@@ -3,12 +3,17 @@
 
 import { useState } from "react";
 import { useDrawableRounds } from "@/hooks/useDrawableRounds";
+import { useRaffleRequirements } from "@/hooks/useRaffleRequirements";
+import { requirementsSummary } from "@/components/RaffleRequirementsEditor";
 import { usePublicClient, useWriteContract } from "wagmi";
-import managerAbi from "@/lib/abi/AkibaV3.json";
-import { RAFFLE_MANAGER } from "@/lib/raffle-contract";
+import managerAbi from "@/lib/abi/AkibaRaffleV7.json";
+import {
+  RAFFLE_DRAW_THRESHOLD_PERCENT,
+  RAFFLE_MANAGER,
+  RAFFLE_MAX_DIRECT_TICKETS,
+} from "@/lib/raffle-contract";
 import type { Hex } from "viem";
 
-const MAX_DIRECT_TICKETS = 25_000;
 const CHUNK_BATCH_SIZE = 300;
 
 const TYPE_BADGE: Record<number, { label: string; color: string }> = {
@@ -16,6 +21,7 @@ const TYPE_BADGE: Record<number, { label: string; color: string }> = {
   1: { label: 'Top-3',    color: 'bg-blue-50 text-blue-700' },
   2: { label: 'Top-5',    color: 'bg-purple-50 text-purple-700' },
   3: { label: 'Physical', color: 'bg-amber-50 text-amber-700' },
+  4: { label: 'Top-10',   color: 'bg-emerald-50 text-emerald-700' },
 }
 
 type ChunkStep = {
@@ -27,6 +33,10 @@ type ChunkStep = {
 
 export default function DrawPage() {
   const { data, isLoading, isError, refetch } = useDrawableRounds();
+  const { data: requirements } = useRaffleRequirements();
+  const requirementsMap = new Map(
+    (requirements ?? []).map((r) => [r.round_id, r])
+  );
   const pc = usePublicClient();
   const { writeContractAsync, status } = useWriteContract();
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -55,8 +65,8 @@ export default function DrawPage() {
     try {
       setBusyId(id);
 
-      if (totalTickets > MAX_DIRECT_TICKETS) {
-        // Step 1: count participants
+      if (totalTickets > RAFFLE_MAX_DIRECT_TICKETS) {
+        // Step 1: count participants and inspect any existing chunks
         setChunkStep({ id, step: 'counting', progress: 0, total: 0 });
         const participants = await pc!.readContract({
           abi: managerAbi,
@@ -65,7 +75,16 @@ export default function DrawPage() {
           args: [BigInt(id)],
         }) as `0x${string}`[];
 
-        const totalBatches = Math.ceil(participants.length / CHUNK_BATCH_SIZE);
+        const chunks = await pc!.readContract({
+          abi: managerAbi,
+          address: RAFFLE_MANAGER,
+          functionName: 'getChunks',
+          args: [BigInt(id)],
+        }) as { first: number; last: number; ticketsInChunk: number }[];
+
+        const nextParticipantIndex = chunks.length > 0 ? Number(chunks[chunks.length - 1].last) + 1 : 0;
+        const remainingParticipants = Math.max(participants.length - nextParticipantIndex, 0);
+        const totalBatches = Math.ceil(remainingParticipants / CHUNK_BATCH_SIZE);
 
         // Step 2: buildChunks in batches
         for (let i = 0; i < totalBatches; i++) {
@@ -74,20 +93,25 @@ export default function DrawPage() {
             abi: managerAbi,
             address: RAFFLE_MANAGER,
             functionName: 'buildChunks',
-            args: [BigInt(id), BigInt(CHUNK_BATCH_SIZE)],
+            args: [BigInt(id), CHUNK_BATCH_SIZE],
           });
           await pc!.waitForTransactionReceipt({ hash: tx as Hex });
         }
 
-        // Step 3: finalizeChunks
-        setChunkStep({ id, step: 'finalizing', progress: 0, total: 0 });
-        const finalizeTx = await writeContractAsync({
-          abi: managerAbi,
-          address: RAFFLE_MANAGER,
-          functionName: 'finalizeChunks',
-          args: [BigInt(id)],
-        });
-        await pc!.waitForTransactionReceipt({ hash: finalizeTx as Hex });
+        // Step 3: finalizeChunks. If another admin already finalized, continue to draw.
+        try {
+          setChunkStep({ id, step: 'finalizing', progress: 0, total: 0 });
+          const finalizeTx = await writeContractAsync({
+            abi: managerAbi,
+            address: RAFFLE_MANAGER,
+            functionName: 'finalizeChunks',
+            args: [BigInt(id)],
+          });
+          await pc!.waitForTransactionReceipt({ hash: finalizeTx as Hex });
+        } catch (e: any) {
+          const msg = `${e?.shortMessage || ""} ${e?.message || ""}`.toLowerCase();
+          if (!msg.includes("chunks already finalized")) throw e;
+        }
       }
 
       // Step 4: drawWinner
@@ -110,7 +134,7 @@ export default function DrawPage() {
   }
 
   function getDrawLabel(id: number, totalTickets: number): string {
-    if (busyId !== id) return totalTickets > MAX_DIRECT_TICKETS ? 'Chunk & Draw' : 'Draw winner';
+    if (busyId !== id) return totalTickets > RAFFLE_MAX_DIRECT_TICKETS ? 'Preflight & draw' : 'Draw winner';
     if (!chunkStep || chunkStep.id !== id) return 'Drawing…';
     switch (chunkStep.step) {
       case 'counting':   return 'Counting…';
@@ -149,7 +173,7 @@ export default function DrawPage() {
 
             const badge = TYPE_BADGE[r.raffleType] ?? TYPE_BADGE[0]
             const ticketPct = r.maxTickets > 0 ? (r.totalTickets / r.maxTickets) * 100 : 0
-            const needsChunking = r.totalTickets > MAX_DIRECT_TICKETS
+            const needsChunking = r.totalTickets > RAFFLE_MAX_DIRECT_TICKETS
 
             return (
               <div key={r.id} className="rounded-lg border bg-gray-50 p-4">
@@ -187,8 +211,20 @@ export default function DrawPage() {
                     </div>
 
                     <span className={`text-xs font-medium ${r.meetsThreshold ? 'text-green-700' : 'text-amber-700'}`}>
-                      {r.meetsThreshold ? '✓ 10% threshold met' : '⚠ Below 10% threshold'}
+                      {r.meetsThreshold ? `✓ ${RAFFLE_DRAW_THRESHOLD_PERCENT}% threshold met` : `⚠ Below ${RAFFLE_DRAW_THRESHOLD_PERCENT}% threshold`}
                     </span>
+
+                    {(() => {
+                      const req = requirementsMap.get(r.id);
+                      if (!req) return null;
+                      const summary = requirementsSummary(req);
+                      if (!summary) return null;
+                      return (
+                        <span className="text-xs rounded-full px-2 py-0.5 font-medium bg-violet-50 text-violet-700">
+                          {summary}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">

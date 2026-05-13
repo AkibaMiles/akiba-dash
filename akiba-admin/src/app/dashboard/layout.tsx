@@ -7,7 +7,8 @@ const TABS = [
   { href: '/dashboard', label: 'Create', exact: true },
   { href: '/dashboard/random', label: 'Random VRF' },
   { href: '/dashboard/draw', label: 'Draw / Close' },
-  { href: '/dashboard/past-raffles', label: 'Past Raffles v3', exact: true },
+  { href: '/dashboard/requirements', label: 'Gate Requirements' },
+  { href: '/dashboard/past-raffles', label: 'Past Raffles', exact: true },
   { href: '/dashboard/past-raffles-v2', label: 'Past Raffles V2' },
 ]
 

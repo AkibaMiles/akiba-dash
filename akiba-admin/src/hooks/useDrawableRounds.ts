@@ -6,7 +6,7 @@ import { gqlFetch } from "@/lib/subgraph";
 import { Address, PublicClient } from "viem";
 // import your configured client, e.g.:
 import {publicClient} from "@/lib/raffle-contract";
-import { RAFFLE_MANAGER } from "@/lib/raffle-contract";
+import { RAFFLE_DRAW_THRESHOLD_PERCENT, RAFFLE_MANAGER } from "@/lib/raffle-contract";
 
 const DEBUG = false;
 const NS = "useDrawableRounds";
@@ -83,6 +83,7 @@ const ABI = [
       { name: "rewardPool", type: "uint256" },
       { name: "ticketCostPoints", type: "uint256" },
       { name: "winnerSelected", type: "bool" },
+      { name: "raffleType", type: "uint8" },
     ],
   },
 ] as const;
@@ -109,17 +110,17 @@ async function fetchOnchainActive(roundIds: number[], pc: PublicClient, addr: Ad
   });
   const out = new Map<number, {
     startTime: number; endTime: number; maxTickets: number; totalTickets: number;
-    rewardToken: string; rewardPool: string; ticketCostPoints: string; winnerSelected: boolean;
+    rewardToken: string; rewardPool: string; ticketCostPoints: string; winnerSelected: boolean; raffleType: number;
   }>();
   res.forEach((r, i) => {
     const id = roundIds[i];
     if (!r || r.status !== "success") return;
-    const [_, st, et, maxT, tot, rt, rp, tcp, ws] = r.result as unknown as [
-      bigint,bigint,bigint,number,number,`0x${string}`,bigint,bigint,boolean
+    const [_, st, et, maxT, tot, rt, rp, tcp, ws, raffleType] = r.result as unknown as [
+      bigint,bigint,bigint,number,number,`0x${string}`,bigint,bigint,boolean,number
     ];
     out.set(id, {
       startTime: n(st), endTime: n(et), maxTickets: n(maxT), totalTickets: n(tot),
-      rewardToken: rt, rewardPool: (rp as bigint).toString(), ticketCostPoints: (tcp as bigint).toString(), winnerSelected: ws,
+      rewardToken: rt, rewardPool: (rp as bigint).toString(), ticketCostPoints: (tcp as bigint).toString(), winnerSelected: ws, raffleType: n(raffleType),
     });
   });
   dbg("onchain active merged", Object.fromEntries(out));
@@ -128,7 +129,7 @@ async function fetchOnchainActive(roundIds: number[], pc: PublicClient, addr: Ad
 
 export function useDrawableRounds() {
   return useQuery({
-    queryKey: ["draw-rounds-v3:merged"],
+    queryKey: ["draw-rounds-v7:merged"],
     queryFn: async (): Promise<DrawableRound[]> => {
       const d = await gqlFetch<Gql>(QUERY);
       const now = Math.floor(Date.now() / 1000);
@@ -169,8 +170,8 @@ export function useDrawableRounds() {
         const ended    = end > 0 && now > end;
         const maxed    = maxT > 0 && tot >= maxT;
 
-        const meetsThreshold = maxT > 0 && (tot * 100) >= (maxT * 10);
-        const underThreshold = maxT > 0 && (tot * 100) <  (maxT * 10);
+        const meetsThreshold = maxT > 0 && (tot * 100) >= (maxT * RAFFLE_DRAW_THRESHOLD_PERCENT);
+        const underThreshold = maxT > 0 && (tot * 100) <  (maxT * RAFFLE_DRAW_THRESHOLD_PERCENT);
 
         return {
           id,
@@ -181,7 +182,7 @@ export function useDrawableRounds() {
           maxReached: maxed,
           drawn: isDrawn,
           closed: isClosed,
-          raffleType: Number(r.roundType ?? 0),
+          raffleType: oc ? oc.raffleType : Number(r.roundType ?? 0),
           randRequested: randReq.has(r.roundId),
           meetsThreshold,
           underThreshold,
