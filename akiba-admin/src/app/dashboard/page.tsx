@@ -1,13 +1,19 @@
 // app/dashboard/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { parseUnits, decodeEventLog, erc20Abi, type Hex } from "viem";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Card from "@/components/Card";
+import {
+  RaffleRequirementsFields,
+  type Gate,
+  type Mode,
+} from "@/components/RaffleRequirementsEditor";
 import managerAbi from "@/lib/abi/AkibaRaffleV7.json";
 import {
   RAFFLE_MANAGER,
@@ -75,10 +81,15 @@ export default function CreateRaffleV7() {
   const [prizeNft,    setPrizeNft]    = useState<`0x${string}` | null>(null);
   const [cardTitle, setCardTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [cardImageUrl, setCardImageUrl] = useState("");
+  const [cardImageFile, setCardImageFile] = useState<File | null>(null);
+  const [cardImagePreview, setCardImagePreview] = useState("");
   const [prizeTitle, setPrizeTitle] = useState("");
+  const [requirementsMode, setRequirementsMode] = useState<Mode>("all");
+  const [requirementsEnabled, setRequirementsEnabled] = useState(false);
+  const [requirementsGates, setRequirementsGates] = useState<Gate[]>([]);
   const [owner, setOwner] = useState<`0x${string}` | null>(null);
   const [isMinter, setIsMinter] = useState<boolean | null>(null);
+  const cardImageInputRef = useRef<HTMLInputElement | null>(null);
 
   // randomness
   const [autoRequest, setAutoRequest] = useState(true);
@@ -87,6 +98,17 @@ export default function CreateRaffleV7() {
   useEffect(() => {
     readPrizeNFT().then(setPrizeNft).catch(() => setPrizeNft(null));
   }, []);
+
+  useEffect(() => {
+    if (!cardImageFile) {
+      setCardImagePreview("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(cardImageFile);
+    setCardImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [cardImageFile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +150,14 @@ export default function CreateRaffleV7() {
     const n = Number(reward);
     return Number.isFinite(n) && n > 0;
   }, [reward, isPhysical]);
+  const invalidMinUsdtRequirement = requirementsGates.some(
+    (gate) =>
+      gate.type === "min_usdt_balance" &&
+      (!Number.isFinite(gate.minUsd) || gate.minUsd <= 0)
+  );
+  const requirementsInvalid =
+    requirementsEnabled &&
+    (requirementsGates.length === 0 || invalidMinUsdtRequirement);
 
   async function onSubmit() {
     try {
@@ -137,6 +167,14 @@ export default function CreateRaffleV7() {
       }
       if (isPhysical && !prizeNft) {
         alert("Prize NFT address not set on the contract yet.");
+        return;
+      }
+      if (requirementsEnabled && requirementsGates.length === 0) {
+        alert("Entry requirements are enabled. Add at least one gate before creating the raffle.");
+        return;
+      }
+      if (requirementsEnabled && invalidMinUsdtRequirement) {
+        alert("Minimum USDT entry requirement must be greater than 0.");
         return;
       }
 
@@ -205,6 +243,7 @@ export default function CreateRaffleV7() {
 
       const roundIdStr = roundId?.toString() ?? "";
       setLastRoundId(roundIdStr);
+      const postCreateWarnings: string[] = [];
 
       // 4) request randomness (fixed fee)
       if (autoRequest && roundId) {
@@ -239,13 +278,36 @@ export default function CreateRaffleV7() {
       }
 
       if (roundId) {
+        let uploadedCardImageUrl: string | null = null;
+
+        if (cardImageFile) {
+          try {
+            const imageForm = new FormData();
+            imageForm.append("file", cardImageFile);
+            imageForm.append("roundId", roundId.toString());
+
+            const uploadRes = await fetch("/api/admin/raffles/upload-image", {
+              method: "POST",
+              body: imageForm,
+            });
+            const uploadJson = await uploadRes.json();
+            if (!uploadRes.ok) {
+              throw new Error(uploadJson?.error || "Image upload failed");
+            }
+            uploadedCardImageUrl = uploadJson.publicUrl;
+          } catch (err: any) {
+            console.error("Failed to upload raffle image", err);
+            postCreateWarnings.push(err?.message || "image upload failed");
+          }
+        }
+
         const metaPayload = {
           roundId: Number(roundId),
           raffleType,
           kind: isPhysical ? "physical" : "token",
           cardTitle: cardTitle || null,
           description: description || null,
-          cardImageUrl: cardImageUrl || null,
+          cardImageUrl: uploadedCardImageUrl,
           prizeTitle:
             prizeTitle ||
             (isPhysical
@@ -255,31 +317,70 @@ export default function CreateRaffleV7() {
         };
       
         try {
-          await fetch("/api/admin/raffles/meta", {
+          const metaRes = await fetch("/api/admin/raffles/meta", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(metaPayload),
           });
+          const metaJson = await metaRes.json().catch(() => ({}));
+          if (!metaRes.ok) {
+            throw new Error(metaJson?.error || "metadata save failed");
+          }
         } catch (err) {
           console.error("Failed to save raffle_meta", err);
-          // you can still continue; on-chain round is fine, UI will just fall back
+          postCreateWarnings.push("metadata save failed");
+        }
+
+        if (requirementsEnabled) {
+          try {
+            const requirementsRes = await fetch("/api/admin/raffle-requirements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                round_id: Number(roundId),
+                mode: requirementsMode,
+                enabled: true,
+                gates: requirementsGates,
+              }),
+            });
+            const requirementsJson = await requirementsRes.json().catch(() => ({}));
+            if (!requirementsRes.ok) {
+              throw new Error(requirementsJson?.error || "requirements save failed");
+            }
+          } catch (err) {
+            console.error("Failed to save raffle_requirements", err);
+            postCreateWarnings.push("entry requirements save failed");
+          }
         }
       }
       
+      const warningText = postCreateWarnings.length
+        ? `\n\nWarnings:\n- ${postCreateWarnings.join("\n- ")}`
+        : "";
 
       alert(
         `Round #${roundIdStr || "?"} created${
           autoRequest ? " & randomness requested" : ""
-        }! 🎉`
+        }! 🎉${warningText}`
       );
       setReward("");
+      setCardImageFile(null);
+      setCardImagePreview("");
+      setRequirementsMode("all");
+      setRequirementsEnabled(false);
+      setRequirementsGates([]);
+      if (cardImageInputRef.current) cardImageInputRef.current.value = "";
     } catch (e: any) {
       console.error(e);
       alert(e?.message ?? "Transaction failed");
     }
   }
 
-  const submitDisabled = isPending || !rewardValid || (!!address && isMinter !== null && !canCreate);
+  const submitDisabled =
+    isPending ||
+    !rewardValid ||
+    requirementsInvalid ||
+    (!!address && isMinter !== null && !canCreate);
 
   return (
     <div className="max-w-2xl">
@@ -458,15 +559,37 @@ export default function CreateRaffleV7() {
             </div>
 
             <div>
-              <Label htmlFor="img">Card image URL</Label>
+              <Label htmlFor="img">Card image</Label>
               <Input
+                ref={cardImageInputRef}
                 id="img"
-                placeholder="https://... (Supabase bucket URL)"
-                value={cardImageUrl}
-                onChange={(e) => setCardImageUrl(e.target.value)}
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (file && !file.type.startsWith("image/")) {
+                    alert("Please choose an image file.");
+                    e.target.value = "";
+                    setCardImageFile(null);
+                    return;
+                  }
+                  setCardImageFile(file);
+                }}
               />
+              {cardImagePreview && (
+                <div className="mt-3 overflow-hidden rounded-lg border bg-gray-50">
+                  <Image
+                    src={cardImagePreview}
+                    alt="Selected raffle card preview"
+                    width={640}
+                    height={160}
+                    unoptimized
+                    className="h-40 w-full object-cover"
+                  />
+                </div>
+              )}
               <p className="mt-1 text-xs text-gray-500">
-                Upload the image to Supabase and paste the public URL here.
+                Select an image here. The dashboard uploads it to Supabase Storage and saves the public URL with the raffle metadata.
               </p>
             </div>
 
@@ -489,6 +612,36 @@ export default function CreateRaffleV7() {
                 Derived from the selected raffle type so off-chain metadata matches the contract.
               </p>
             </div>
+          </div>
+
+          {/* Entry requirements (off-chain) */}
+          <div className="border-t pt-4 space-y-4">
+            <div>
+              <h3 className="font-medium text-sm">Entry requirements</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Optional dApp gates saved to Supabase after the round is created.
+              </p>
+            </div>
+
+            <RaffleRequirementsFields
+              mode={requirementsMode}
+              enabled={requirementsEnabled}
+              gates={requirementsGates}
+              onModeChange={setRequirementsMode}
+              onEnabledChange={setRequirementsEnabled}
+              onGatesChange={setRequirementsGates}
+            />
+
+            {requirementsEnabled && requirementsGates.length === 0 && (
+              <p className="text-sm text-red-600">
+                Add at least one gate or disable gating before creating the raffle.
+              </p>
+            )}
+            {requirementsEnabled && invalidMinUsdtRequirement && (
+              <p className="text-sm text-red-600">
+                Minimum USDT requirement must be greater than 0.
+              </p>
+            )}
           </div>
 
 

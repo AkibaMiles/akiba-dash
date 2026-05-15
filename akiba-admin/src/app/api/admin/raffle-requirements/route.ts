@@ -3,6 +3,32 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
+type Gate =
+  | { type: "min_usdt_balance"; minUsd: number }
+  | { type: "prosperity_pass_holder" }
+  | { type: "daily_5tx_completed" };
+
+function parseGate(raw: unknown): Gate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const gate = raw as Record<string, unknown>;
+
+  if (gate.type === "min_usdt_balance") {
+    const minUsd = Number(gate.minUsd);
+    if (!Number.isFinite(minUsd) || minUsd <= 0) return null;
+    return { type: "min_usdt_balance", minUsd };
+  }
+
+  if (gate.type === "prosperity_pass_holder") {
+    return { type: "prosperity_pass_holder" };
+  }
+
+  if (gate.type === "daily_5tx_completed") {
+    return { type: "daily_5tx_completed" };
+  }
+
+  return null;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const roundId = searchParams.get("round_id");
@@ -54,12 +80,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "At least one gate is required" }, { status: 400 });
   }
 
+  const parsedGates = gates.map(parseGate);
+  if (parsedGates.some((gate) => !gate)) {
+    return NextResponse.json({ error: "Invalid gate configuration" }, { status: 400 });
+  }
+
   const supabase = getSupabaseAdmin();
 
   const { error } = await supabase
     .from("raffle_requirements")
     .upsert(
-      { round_id: Number(round_id), mode, enabled: Boolean(enabled), gates },
+      { round_id: Number(round_id), mode, enabled: Boolean(enabled), gates: parsedGates },
       { onConflict: "round_id" }
     );
 

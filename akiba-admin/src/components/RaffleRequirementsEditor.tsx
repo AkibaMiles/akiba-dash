@@ -7,16 +7,16 @@ import { Label } from "@/components/ui/label";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type GateType = "min_usdt_balance" | "prosperity_pass_holder" | "daily_5tx_completed";
+export type GateType = "min_usdt_balance" | "prosperity_pass_holder" | "daily_5tx_completed";
 
-type Gate =
+export type Gate =
   | { type: "min_usdt_balance"; minUsd: number }
   | { type: "prosperity_pass_holder" }
   | { type: "daily_5tx_completed" };
 
-type Mode = "all" | "any";
+export type Mode = "all" | "any";
 
-type RequirementsRow = {
+export type RequirementsRow = {
   round_id: number;
   mode: Mode;
   enabled: boolean;
@@ -99,40 +99,30 @@ function GateEditor({
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Controlled fields ────────────────────────────────────────────────────────
 
-type Props = {
-  roundId: number;
-  onSaved?: () => void;
+type FieldsProps = {
+  mode: Mode;
+  enabled: boolean;
+  gates: Gate[];
+  roundId?: number;
+  onModeChange: (mode: Mode) => void;
+  onEnabledChange: (enabled: boolean) => void;
+  onGatesChange: (gates: Gate[]) => void;
+  onDirty?: () => void;
 };
 
-export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-
-  const [mode, setMode] = useState<Mode>("all");
-  const [enabled, setEnabled] = useState(false);
-  const [gates, setGates] = useState<Gate[]>([]);
+export function RaffleRequirementsFields({
+  mode,
+  enabled,
+  gates,
+  roundId = 0,
+  onModeChange,
+  onEnabledChange,
+  onGatesChange,
+  onDirty,
+}: FieldsProps) {
   const [addType, setAddType] = useState<GateType>("min_usdt_balance");
-
-  // Load existing config
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetch(`/api/admin/raffle-requirements?round_id=${roundId}`)
-      .then((r) => r.json())
-      .then(({ data }) => {
-        if (data) {
-          setMode(data.mode ?? "all");
-          setEnabled(Boolean(data.enabled));
-          setGates(Array.isArray(data.gates) ? data.gates : []);
-        }
-      })
-      .catch(() => setError("Failed to load existing config"))
-      .finally(() => setLoading(false));
-  }, [roundId]);
 
   const addedTypes = new Set(gates.map((g) => g.type));
   const availablePresets = (
@@ -146,57 +136,27 @@ export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
     }
   }, [availablePresets.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function markDirty() {
+    onDirty?.();
+  }
+
   function addGate() {
     if (!availablePresets.includes(addType)) return;
-    setGates((prev) => [...prev, defaultGate(addType)]);
-    setSuccess(false);
+    onGatesChange([...gates, defaultGate(addType)]);
+    markDirty();
   }
 
   function updateGate(i: number, g: Gate) {
-    setGates((prev) => prev.map((old, idx) => (idx === i ? g : old)));
-    setSuccess(false);
+    onGatesChange(gates.map((old, idx) => (idx === i ? g : old)));
+    markDirty();
   }
 
   function removeGate(i: number) {
-    setGates((prev) => prev.filter((_, idx) => idx !== i));
-    setSuccess(false);
+    onGatesChange(gates.filter((_, idx) => idx !== i));
+    markDirty();
   }
 
-  async function save() {
-    if (gates.length === 0) {
-      setError("Add at least one gate before saving.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setSuccess(false);
-    try {
-      const res = await fetch("/api/admin/raffle-requirements", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ round_id: roundId, mode, enabled, gates }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
-      setSuccess(true);
-      onSaved?.();
-    } catch (e: any) {
-      setError(e.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-2 animate-pulse">
-        <div className="h-4 w-32 rounded bg-gray-200" />
-        <div className="h-10 rounded bg-gray-100" />
-      </div>
-    );
-  }
-
-  const canSave = gates.length > 0;
+  const summary = requirementsSummary({ round_id: roundId, mode, enabled, gates });
 
   return (
     <div className="space-y-4">
@@ -206,7 +166,10 @@ export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
           <div
             role="switch"
             aria-checked={enabled}
-            onClick={() => { setEnabled((v) => !v); setSuccess(false); }}
+            onClick={() => {
+              onEnabledChange(!enabled);
+              markDirty();
+            }}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
               enabled ? "bg-[#238D9D]" : "bg-gray-200"
             }`}
@@ -224,7 +187,10 @@ export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
           <span className="text-gray-500">Require</span>
           <select
             value={mode}
-            onChange={(e) => { setMode(e.target.value as Mode); setSuccess(false); }}
+            onChange={(e) => {
+              onModeChange(e.target.value as Mode);
+              markDirty();
+            }}
             className="rounded-md border px-2 py-1 text-sm"
           >
             <option value="all">all gates (AND)</option>
@@ -273,10 +239,100 @@ export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
         <p className="text-xs text-gray-500">
           Preview:{" "}
           <span className="font-medium text-gray-700">
-            {requirementsSummary({ round_id: roundId, mode, enabled, gates })}
+            {summary || "Not enforced until gating is enabled."}
           </span>
         </p>
       )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+type Props = {
+  roundId: number;
+  onSaved?: () => void;
+};
+
+export default function RaffleRequirementsEditor({ roundId, onSaved }: Props) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const [mode, setMode] = useState<Mode>("all");
+  const [enabled, setEnabled] = useState(false);
+  const [gates, setGates] = useState<Gate[]>([]);
+
+  // Load existing config
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/admin/raffle-requirements?round_id=${roundId}`)
+      .then((r) => r.json())
+      .then(({ data }) => {
+        if (data) {
+          setMode(data.mode ?? "all");
+          setEnabled(Boolean(data.enabled));
+          setGates(Array.isArray(data.gates) ? data.gates : []);
+        } else {
+          setMode("all");
+          setEnabled(false);
+          setGates([]);
+        }
+      })
+      .catch(() => setError("Failed to load existing config"))
+      .finally(() => setLoading(false));
+  }, [roundId]);
+
+  async function save() {
+    if (gates.length === 0) {
+      setError("Add at least one gate before saving.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const res = await fetch("/api/admin/raffle-requirements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ round_id: roundId, mode, enabled, gates }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      setSuccess(true);
+      onSaved?.();
+    } catch (e: any) {
+      setError(e.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-2 animate-pulse">
+        <div className="h-4 w-32 rounded bg-gray-200" />
+        <div className="h-10 rounded bg-gray-100" />
+      </div>
+    );
+  }
+
+  const canSave = gates.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <RaffleRequirementsFields
+        roundId={roundId}
+        mode={mode}
+        enabled={enabled}
+        gates={gates}
+        onModeChange={setMode}
+        onEnabledChange={setEnabled}
+        onGatesChange={setGates}
+        onDirty={() => setSuccess(false)}
+      />
 
       {/* Validation / feedback */}
       {error && <p className="text-sm text-red-600">{error}</p>}
